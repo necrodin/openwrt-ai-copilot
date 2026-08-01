@@ -1,0 +1,275 @@
+"""Normalized, provider- and transport-independent device snapshot model.
+
+Every collector emits one of these section models; the snapshot assembles them
+into a single :class:`DeviceSnapshot`. This is the *only* shape the router agent
+produces, regardless of whether data came over SSH, local execution, or LuCI
+RPC. Field names are stable and documented — downstream consumers (diagnostics,
+fleet telemetry) depend on them.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+# --------------------------------------------------------------------------- #
+# Sections                                                                     #
+# --------------------------------------------------------------------------- #
+
+
+class CpuInfo(BaseModel):
+    load_1: float
+    load_5: float
+    load_15: float
+    cores: int = 1
+    uptime_seconds: float = 0.0
+    usage_percent: float | None = None
+    frequency_mhz: int | None = None
+
+
+class MemoryInfo(BaseModel):
+    total_kb: int
+    free_kb: int
+    used_kb: int
+    buffered_kb: int = 0
+    cached_kb: int | None = None
+    available_kb: int | None = None
+
+
+class TemperatureReading(BaseModel):
+    zone: str
+    temperature_c: float
+
+
+class StorageMount(BaseModel):
+    device: str
+    mountpoint: str
+    filesystem: str = ""
+    total_bytes: int | None = None
+    used_bytes: int | None = None
+    available_bytes: int | None = None
+    use_percent: float | None = None
+
+
+class NetworkAddress(BaseModel):
+    address: str
+    prefix: int = 0
+    family: Literal["ipv4", "ipv6"]
+
+
+class NetworkInterface(BaseModel):
+    name: str
+    up: bool = False
+    proto: str | None = None
+    device: str | None = None
+    mac: str | None = None
+    link: bool | None = None
+    speed_mbps: int | None = None
+    rx_bytes: int | None = None
+    tx_bytes: int | None = None
+    addresses: list[NetworkAddress] = Field(default_factory=list)
+
+
+class FirewallZone(BaseModel):
+    name: str
+    input: str | None = None
+    output: str | None = None
+    forward: str | None = None
+    masquerade: bool = False
+
+
+class FirewallRule(BaseModel):
+    name: str = ""
+    src: str | None = None
+    dest: str | None = None
+    proto: str | None = None
+    target: str | None = None
+    family: str | None = None
+    dest_port: str | None = None
+
+
+class FirewallInfo(BaseModel):
+    zones: list[FirewallZone] = Field(default_factory=list)
+    rules: list[FirewallRule] = Field(default_factory=list)
+
+
+class WifiRadio(BaseModel):
+    name: str
+    up: bool = False
+    mode: str | None = None
+    band: str | None = None
+    channel: int | None = None
+    frequency_mhz: int | None = None
+    tx_power: int | None = None
+    ssid: str | None = None
+    hwmode: str | None = None
+    station_count: int = 0
+
+
+class WifiClient(BaseModel):
+    mac: str
+    ssid: str | None = None
+    signal_dbm: int | None = None
+    tx_bytes: int | None = None
+    rx_bytes: int | None = None
+    connected_minutes: int | None = None
+
+
+class WifiInfo(BaseModel):
+    radios: list[WifiRadio] = Field(default_factory=list)
+    clients: list[WifiClient] = Field(default_factory=list)
+
+
+class ArpEntry(BaseModel):
+    ip: str
+    mac: str
+    interface: str
+    state: str = "unknown"
+
+
+class RouteEntry(BaseModel):
+    destination: str
+    gateway: str | None = None
+    interface: str | None = None
+    metric: int | None = None
+    family: Literal["ipv4", "ipv6"]
+    flags: str = ""
+
+
+class VpnTunnel(BaseModel):
+    name: str
+    kind: Literal["wireguard", "openvpn", "other"]
+    up: bool = False
+    public_key: str | None = None
+    listen_port: int | None = None
+    endpoint: str | None = None
+    allowed_ips: list[str] = Field(default_factory=list)
+    addresses: list[str] = Field(default_factory=list)
+    peer_count: int = 0
+    detail: dict = Field(default_factory=dict)
+
+
+class DhcpPool(BaseModel):
+    name: str
+    interface: str | None = None
+    start: str | None = None
+    limit: int | None = None
+    leasetime: str | None = None
+
+
+class DhcpLease(BaseModel):
+    hostname: str = ""
+    ip: str
+    mac: str | None = None
+    expires: str | None = None
+    interface: str | None = None
+
+
+class DhcpInfo(BaseModel):
+    pools: list[DhcpPool] = Field(default_factory=list)
+    leases: list[DhcpLease] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class Package(BaseModel):
+    name: str
+    version: str = ""
+    description: str = ""
+
+
+class KernelInfo(BaseModel):
+    kernel: str = ""
+    release: str = ""
+    hostname: str = ""
+    model: str = ""
+    architecture: str = ""
+    board: str = ""
+    system: str = ""
+    version: str = ""
+
+
+class LogEntry(BaseModel):
+    raw: str
+    timestamp: str | None = None
+    facility: str | None = None
+    priority: str | None = None
+    ident: str | None = None
+    message: str = ""
+
+
+class LogInfo(BaseModel):
+    entries: list[LogEntry] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Snapshot                                                                    #
+# --------------------------------------------------------------------------- #
+
+
+class SnapshotMeta(BaseModel):
+    collected_at: datetime
+    device_id: str = "unconfigured"
+    transport: str = "unknown"
+    host: str = ""
+    board: str = ""
+    model: str = ""
+    firmware: str = ""
+    collectors_run: list[str] = Field(default_factory=list)
+
+
+class CollectError(BaseModel):
+    collector: str
+    error: str
+
+
+class DeviceSnapshot(BaseModel):
+    """One normalized JSON document describing the router's current state."""
+
+    meta: SnapshotMeta
+    cpu: CpuInfo | None = None
+    memory: MemoryInfo | None = None
+    temperature: list[TemperatureReading] = Field(default_factory=list)
+    storage: list[StorageMount] = Field(default_factory=list)
+    network: list[NetworkInterface] = Field(default_factory=list)
+    firewall: FirewallInfo = Field(default_factory=FirewallInfo)
+    wifi: WifiInfo = Field(default_factory=WifiInfo)
+    clients: list[DhcpLease] = Field(default_factory=list)
+    arp: list[ArpEntry] = Field(default_factory=list)
+    routing: list[RouteEntry] = Field(default_factory=list)
+    vpn: list[VpnTunnel] = Field(default_factory=list)
+    dhcp: DhcpInfo = Field(default_factory=DhcpInfo)
+    packages: list[Package] = Field(default_factory=list)
+    kernel: KernelInfo = Field(default_factory=KernelInfo)
+    logs: LogInfo = Field(default_factory=LogInfo)
+    errors: list[CollectError] = Field(default_factory=list)
+
+
+__all__ = [
+    "ArpEntry",
+    "CollectError",
+    "CpuInfo",
+    "DeviceSnapshot",
+    "DhcpInfo",
+    "DhcpLease",
+    "DhcpPool",
+    "FirewallInfo",
+    "FirewallRule",
+    "FirewallZone",
+    "KernelInfo",
+    "LogEntry",
+    "LogInfo",
+    "MemoryInfo",
+    "NetworkAddress",
+    "NetworkInterface",
+    "Package",
+    "RouteEntry",
+    "SnapshotMeta",
+    "StorageMount",
+    "TemperatureReading",
+    "VpnTunnel",
+    "WifiClient",
+    "WifiInfo",
+    "WifiRadio",
+]

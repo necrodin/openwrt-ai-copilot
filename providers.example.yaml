@@ -1,0 +1,54 @@
+# Example AI provider configuration for OpenWrt AI Copilot.
+#
+# Copy this file to `providers.yaml` (next to wherever the backend runs, or set
+# the PROVIDER_CONFIG_FILE env var) and fill in your API keys. Providers whose
+# `enabled` is false are not instantiated. Leave `model` empty to use each
+# provider's own default model.
+#
+# Switching providers never requires code changes — just edit this file.
+
+default_provider: ollama
+
+providers:
+  ollama:
+    enabled: true
+    base_url: http://localhost:11434
+    model: qwen2.5:7b
+    embed_model: nomic-embed-text
+    # vision_model: qwen2.5-vl:7b
+
+  nim:
+    enabled: false
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+    model: meta/llama-3.3-70b-instruct
+    embed_model: nvidia/llama-3.2-nv-embedqa-1b-v2
+    rerank_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
+    # Cost tracking (USD per 1k tokens) — optional.
+    cost_per_1k_prompt: 0.00001
+    cost_per_1k_completion: 0.00002
+
+  openai:
+    enabled: false
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    model: gpt-4o-mini
+
+  openrouter:
+    enabled: false
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    model: anthropic/claude-3.5-sonnet
+    extra_headers:
+      HTTP-Referer: http://localhost:3000
+      X-Title: OpenWrt AI Copilot
+
+  lmstudio:
+    enabled: false
+    base_url: http://localhost:1234/v1
+    model: local-model
+
+  vllm:
+    enabled: false
+    base_url: http://localhost:8000/v1
+    model: meta-llama/Meta-Llama-3-8B-Instruct

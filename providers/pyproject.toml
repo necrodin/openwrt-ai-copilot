@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "openwrt-ai-providers"
+version = "0.1.0"
+description = "OpenWrt AI Copilot — pluggable AI provider adapters"
+requires-python = ">=3.12"
+dependencies = [
+    "openwrt-ai-core>=0.1.0",
+    "httpx>=0.27,<1",
+    "pyyaml>=6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/providers"]

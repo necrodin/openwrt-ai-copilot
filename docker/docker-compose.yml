@@ -1,0 +1,44 @@
+name: openwrt-ai
+
+networks:
+  frontend: {}
+  internal: {}
+
+volumes:
+  data: {}
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: sqlite:////data/openwrt_ai.db
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BACKEND_CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - data:/data
+    ports:
+      - "8000:8000"
+    networks:
+      - internal
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:3000/api/v1
+    environment:
+      BACKEND_INTERNAL_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - internal
+      - frontend
+    restart: unless-stopped
