@@ -132,7 +132,10 @@ def test_chat_history_included_in_second_turn() -> None:
 def test_chat_stream_deltas_and_persists_reply() -> None:
     seen: dict = {}
     with _client(_manager(seen)) as client:
-        response = client.post("/api/v1/chat/stream", json={"session_id": "s4", "message": "stream"})
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"session_id": "s4", "message": "stream"},
+        )
         history = client.get("/api/v1/chat/history", params={"session_id": "s4"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")

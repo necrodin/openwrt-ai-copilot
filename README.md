@@ -9,9 +9,10 @@ validated configuration changes.
 NVIDIA NIM, OpenAI, OpenRouter, LM Studio, vLLM) are interchangeable adapters,
 never hard dependencies.
 
-> This repository is in **Sprint 1: project foundation**. No router logic, AI
-> logic, RAG, or dashboard is implemented yet. See
-> [docs/SPRINT-1.md](docs/SPRINT-1.md) for the roadmap.
+> **Sprint 5 delivered: AI Chat.** Ask questions about your router in natural
+> language; answers are grounded in the live router snapshot, never invented.
+> Streaming, chat history, and Markdown rendering are included. No RAG yet.
+> See [docs/SPRINT-5.md](docs/SPRINT-5.md).
 
 ## Technology stack
 
@@ -27,14 +28,14 @@ never hard dependencies.
 
 ```
 openwrt-ai/
-├── frontend/          Next.js web UI (no dashboard yet)
+├── frontend/          Next.js web UI (home, live dashboard, AI chat)
 ├── backend/           FastAPI control plane (app package)
 ├── ai/                Provider-agnostic AI core: protocols, models, registry
 ├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm)
 ├── rag/               RAG pipeline (chunking / retrieval / reranking)
 ├── vision/            Vision abstraction + adapters
 ├── database/          SQLite schema, engine, session, migrations (future)
-├── router-agent/      On-device agent (future sprint)
+├── router-agent/      On-device agent (data collection)
 ├── docker/            Docker Compose topologies
 ├── tests/             Integration/unit tests (pytest)
 └── docs/              Architecture + sprint documentation
@@ -58,6 +59,7 @@ make dev-frontend     # Next.js dev server on http://localhost:3000
 ```
 
 The frontend proxies `/api/*` to the backend (default `http://localhost:8000`).
+The live dashboard is at `/dashboard`; the AI chat is at `/chat`.
 
 ### 3. Tests & linting
 
@@ -80,6 +82,9 @@ docker compose -f docker/docker-compose.yml up --build
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture
 - [docs/SPRINT-1.md](docs/SPRINT-1.md) — Sprint 1 scope and roadmap
+- [docs/SPRINT-2.md](docs/SPRINT-2.md) — provider abstraction layer
+- [docs/SPRINT-4.md](docs/SPRINT-4.md) — live dashboard
+- [docs/SPRINT-5.md](docs/SPRINT-5.md) — AI chat
 - [docs/README.md](docs/README.md) — documentation index
 
 ## License

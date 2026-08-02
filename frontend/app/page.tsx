@@ -31,11 +31,16 @@ export default function Home() {
         </CardContent>
       </Card>
 
-      <Button asChild>
-        <a href="/dashboard">Open live dashboard</a>
-      </Button>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <Button asChild>
+          <a href="/chat">Open AI chat</a>
+        </Button>
+        <Button asChild variant="outline">
+          <a href="/dashboard">Open live dashboard</a>
+        </Button>
+      </div>
 
-      <Button asChild variant="outline">
+      <Button asChild variant="ghost">
         <a
           href="https://openwrt.org"
           target="_blank"

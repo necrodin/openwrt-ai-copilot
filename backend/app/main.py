@@ -32,9 +32,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     application.state.chat_store = chat_store
     application.state.chat_service = ChatService(
         application.state.provider_manager,
-        snapshot=lambda: snapshot_service.latest().snapshot
-        if snapshot_service.latest() is not None
-        else None,
+        snapshot=lambda: (
+            snapshot_service.latest().snapshot if snapshot_service.latest() is not None else None
+        ),
     )
     try:
         yield

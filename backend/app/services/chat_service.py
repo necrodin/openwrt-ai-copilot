@@ -73,8 +73,7 @@ class ChatService:
         snapshot = self._snapshot()
         if snapshot is None:
             return (
-                SYSTEM_PROMPT
-                + "\n\nROUTER STATE: No router state is available — the data "
+                SYSTEM_PROMPT + "\n\nROUTER STATE: No router state is available — the data "
                 "feed is not connected.\n"
                 "If the user asks anything about the router, tell them router "
                 "data is unavailable and do not invent any values."

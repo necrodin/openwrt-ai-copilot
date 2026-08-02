@@ -126,6 +126,10 @@ export default function DashboardPage() {
           Home
         </Link>
         <span aria-hidden>·</span>
+        <Link href="/chat" className="underline underline-offset-4 hover:text-foreground">
+          AI Chat
+        </Link>
+        <span aria-hidden>·</span>
         <span className="inline-flex items-center gap-1">
           <Activity className="size-3.5" aria-hidden />
           Real-time updates over WebSocket

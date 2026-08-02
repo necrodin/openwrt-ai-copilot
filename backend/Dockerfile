@@ -8,9 +8,10 @@ COPY ai ./ai
 COPY providers ./providers
 COPY rag ./rag
 COPY vision ./vision
+COPY router-agent ./router-agent
 COPY backend ./backend
 
-RUN pip install --no-cache-dir ./database ./ai ./providers ./rag ./vision ./backend
+RUN pip install --no-cache-dir ./database ./ai ./providers ./rag ./vision ./router-agent ./backend
 
 FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
