@@ -173,5 +173,3 @@ def _make(pool):
 @pytest.fixture
 def shared_pool():
     return SSHConnectionPool(_config(pool_size=4), backend_factory=_mock_factory)
-
-

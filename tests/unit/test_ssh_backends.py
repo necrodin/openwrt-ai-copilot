@@ -136,9 +136,7 @@ async def test_mock_require_key_allows_with_key() -> None:
 
 @pytest.mark.asyncio
 async def test_mock_run_scripted_output() -> None:
-    backend = MockSSHBackend(
-        _config(), scripts={"df -h": "filesystem...", "free": "memory..."}
-    )
+    backend = MockSSHBackend(_config(), scripts={"df -h": "filesystem...", "free": "memory..."})
     await backend.connect()
     assert await backend.run("df -h") == "filesystem..."
     assert await backend.run("free -m") == "memory..."
@@ -172,9 +170,7 @@ async def test_mock_run_timeout_on_matching_commands() -> None:
 
 @pytest.mark.asyncio
 async def test_mock_run_timeout_skips_non_matching_commands() -> None:
-    backend = MockSSHBackend(
-        _config(), timeout_commands=("slow",), scripts={"fast": "done"}
-    )
+    backend = MockSSHBackend(_config(), timeout_commands=("slow",), scripts={"fast": "done"})
     await backend.connect()
     result = await backend.run("fast")
     assert result == "done"
@@ -219,9 +215,7 @@ async def test_mock_is_alive_after_close() -> None:
 
 @pytest.mark.asyncio
 async def test_mock_is_alive_with_drop_after() -> None:
-    backend = MockSSHBackend(
-        _config(), drop_after=2, scripts={"cmd": "ok"}
-    )
+    backend = MockSSHBackend(_config(), drop_after=2, scripts={"cmd": "ok"})
     await backend.connect()
     assert await backend.is_alive() is True
     await backend.run("cmd 1")
@@ -232,9 +226,7 @@ async def test_mock_is_alive_with_drop_after() -> None:
 
 @pytest.mark.asyncio
 async def test_mock_drop_after_zero_never_drops() -> None:
-    backend = MockSSHBackend(
-        _config(), drop_after=0, scripts={"cmd": "ok"}
-    )
+    backend = MockSSHBackend(_config(), drop_after=0, scripts={"cmd": "ok"})
     await backend.connect()
     for _ in range(100):
         await backend.run("cmd x")

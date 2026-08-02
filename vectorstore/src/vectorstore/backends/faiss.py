@@ -19,8 +19,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from vectorstore.backends._filters import matches, validate_filters
 from vectorstore.errors import (
     CollectionExistsError,
@@ -44,8 +42,10 @@ from vectorstore.protocols import VectorStore
 
 try:
     import faiss
+    import numpy as np
 except ImportError:  # pragma: no cover - exercised when faiss is absent
     faiss = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment]
 
 _SAFE = re.compile(r"[^a-zA-Z0-9._-]")
 
@@ -72,7 +72,7 @@ class FAISSVectorStore(VectorStore):
     provider_type = "faiss"
 
     def __init__(self, config: Any, **_: Any) -> None:
-        if faiss is None:
+        if faiss is None or np is None:
             raise VectorStoreError(
                 "The FAISS backend requires 'faiss-cpu' and 'numpy'. "
                 "Install them (e.g. pip install 'openwrt-ai-vectorstore[faiss]')."

@@ -156,9 +156,7 @@ class AsyncSSHBackend:
         try:
             self._conn = await asyncssh.connect(**kwargs)
         except asyncssh.HostKeyNotVerifiable as exc:
-            raise HostKeyError(
-                f"host key verification failed for {config.host}: {exc}"
-            ) from exc
+            raise HostKeyError(f"host key verification failed for {config.host}: {exc}") from exc
         except asyncssh.PermissionDenied as exc:
             raise AuthenticationError(
                 f"authentication failed for {creds.username}@{config.host}: {exc}"
@@ -178,17 +176,13 @@ class AsyncSSHBackend:
             raise SSHConnectionError(f"not connected to {self.description}")
         timeout = self._config.command_timeout if timeout is None else timeout
         try:
-            result = await asyncio.wait_for(
-                conn.run(command, check=False), timeout=timeout
-            )
+            result = await asyncio.wait_for(conn.run(command, check=False), timeout=timeout)
         except TimeoutError as exc:
             raise SSHTimeoutError(
                 f"command timed out after {timeout}s on {self.description}: {command!r}"
             ) from exc
         except (asyncssh.ProcessError, asyncssh.DisconnectError, asyncssh.Error) as exc:
-            raise SSHConnectionError(
-                f"command failed on {self.description}: {exc}"
-            ) from exc
+            raise SSHConnectionError(f"command failed on {self.description}: {exc}") from exc
         if result.exit_status != 0:
             raise CommandError(
                 f"Command failed ({result.exit_status}) on {self.description}: {command!r}"
@@ -407,8 +401,8 @@ class MockSSHBackend:
             raise SSHTimeoutError(f"mock: connect to {self._config.host} timed out")
         if self.fail_auth:
             raise AuthenticationError(
-            f"mock: authentication failed for {self._credentials.username}"
-        )
+                f"mock: authentication failed for {self._credentials.username}"
+            )
         if (
             self.require_username is not None
             and self.require_username != self._credentials.username
