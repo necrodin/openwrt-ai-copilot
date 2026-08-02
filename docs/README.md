@@ -8,3 +8,4 @@
 | [SPRINT-4.md](SPRINT-4.md) | Sprint 4: live dashboard (realtime WebSocket widgets). |
 | [SPRINT-5.md](SPRINT-5.md) | Sprint 5: AI chat (streaming, chat history, Markdown, no RAG). |
 | [SPRINT-6.md](SPRINT-6.md) | Sprint 6: provider-independent embedding platform. |
+| [SPRINT-7.md](SPRINT-7.md) | Sprint 7: provider-independent vector database layer. |

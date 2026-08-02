@@ -19,6 +19,13 @@ never hard dependencies.
 > OpenAI, Ollama, OpenRouter, LM Studio, vLLM) with batching, retries,
 > timeouts, and token-usage accounting. No vector DB / RAG yet.
 > See [docs/SPRINT-6.md](docs/SPRINT-6.md).
+>
+> **Sprint 7 delivered: Vector Database Layer.** A provider-independent
+> `VectorStore` interface with four interchangeable backends — SQLite (offline
+> reference), Chroma, Qdrant, FAISS — covering collection/document CRUD, batch
+> insert, cosine similarity search, metadata filters, namespaces, pagination,
+> and versioning, all behind a config-driven `VectorStoreFactory`. No RAG yet.
+> See [docs/SPRINT-7.md](docs/SPRINT-7.md).
 
 ## Technology stack
 
@@ -27,7 +34,7 @@ never hard dependencies.
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS v4, shadcn/ui |
 | Backend | FastAPI, Python 3.12 |
 | Database | SQLite (via SQLAlchemy 2) |
-| AI layer | Provider-agnostic Python packages (`ai`, `providers`, `rag`, `vision`) |
+| AI layer | Provider-agnostic Python packages (`ai`, `providers`, `rag`, `vision`, `vectorstore`) |
 | Deployment | Docker, Docker Compose |
 
 ## Repository layout
@@ -40,6 +47,7 @@ openwrt-ai/
 ├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm, nvembed)
 ├── rag/               RAG pipeline (chunking / retrieval / reranking)
 ├── vision/            Vision abstraction + adapters
+├── vectorstore/       Provider-independent vector DB layer (sqlite, qdrant, chroma, faiss)
 ├── database/          SQLite schema, engine, session, migrations (future)
 ├── router-agent/      On-device agent (data collection)
 ├── docker/            Docker Compose topologies
@@ -92,6 +100,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [docs/SPRINT-4.md](docs/SPRINT-4.md) — live dashboard
 - [docs/SPRINT-5.md](docs/SPRINT-5.md) — AI chat
 - [docs/SPRINT-6.md](docs/SPRINT-6.md) — embedding platform
+- [docs/SPRINT-7.md](docs/SPRINT-7.md) — vector database layer
 - [docs/README.md](docs/README.md) — documentation index
 
 ## License
