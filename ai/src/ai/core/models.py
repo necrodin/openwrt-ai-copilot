@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 Role = Literal["system", "user", "assistant", "tool"]
 PartType = Literal["text", "image"]
+EmbeddingInputType = Literal["query", "passage"]
 
 
 class Usage(BaseModel):
@@ -54,6 +55,18 @@ class TokenUsage(BaseModel):
 
     def add_error(self) -> None:
         self.errors += 1
+
+    def absorb(self, other: TokenUsage) -> None:
+        """Fold another snapshot's counters into this one (aggregation)."""
+        self.prompt_tokens += other.prompt_tokens
+        self.completion_tokens += other.completion_tokens
+        self.calls += other.calls
+        self.errors += other.errors
+        self.cost_usd += other.cost_usd
+        for capability, usage in other.by_capability.items():
+            bucket = self.by_capability.setdefault(capability, Usage())
+            bucket.prompt_tokens += usage.prompt_tokens
+            bucket.completion_tokens += usage.completion_tokens
 
 
 class ProviderCapabilities(BaseModel):
@@ -139,6 +152,11 @@ class EmbeddingRequest(BaseModel):
     model: str = ""
     inputs: list[str]
     dimensions: int | None = None
+    #: Retrieval-aware input mode for models that distinguish queries from
+    #: documents (e.g. NVIDIA NV-Embed). Providers that ignore it never see it.
+    input_type: EmbeddingInputType | None = None
+    #: When True the provider L2-normalizes every returned vector.
+    normalize: bool = False
 
 
 class EmbeddingVector(BaseModel):
@@ -189,6 +207,7 @@ __all__ = [
     "ChatRequest",
     "ChatResponse",
     "ContentPart",
+    "EmbeddingInputType",
     "EmbeddingRequest",
     "EmbeddingResponse",
     "EmbeddingVector",

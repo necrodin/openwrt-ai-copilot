@@ -8,14 +8,14 @@ implementation and adds ``rerank()``. No NVIDIA SDK is used.
 from __future__ import annotations
 
 from ai.core.models import RerankRequest, RerankResponse, RerankResult, Usage
-from ai.core.protocols import CAPABILITY_RERANK
+from ai.core.protocols import CAPABILITY_EMBEDDINGS, CAPABILITY_RERANK
 from providers.compat_provider import OpenAICompatibleProvider
 
 
 class NIMProvider(OpenAICompatibleProvider):
     provider_type = "nim"
     capability_defaults: set[str] = frozenset(
-        {CAPABILITY_RERANK} | OpenAICompatibleProvider.capability_defaults
+        {CAPABILITY_EMBEDDINGS, CAPABILITY_RERANK} | OpenAICompatibleProvider.capability_defaults
     )
 
     async def rerank(self, request: RerankRequest) -> RerankResponse:

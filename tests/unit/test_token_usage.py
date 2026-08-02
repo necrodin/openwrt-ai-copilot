@@ -30,6 +30,33 @@ def test_add_error() -> None:
     assert usage.errors == 1
 
 
+def test_absorb_merges_totals_and_errors() -> None:
+    left = TokenUsage()
+    left.merge("chat", Usage(prompt_tokens=10, completion_tokens=5))
+    left.add_error()
+    right = TokenUsage()
+    right.merge("embeddings", Usage(prompt_tokens=7))
+    right.add_error()
+
+    left.absorb(right)
+    assert left.prompt_tokens == 17
+    assert left.completion_tokens == 5
+    assert left.total_tokens == 22
+    assert left.calls == 2
+    assert left.errors == 2
+    assert left.by_capability["embeddings"].prompt_tokens == 7
+
+
+def test_absorb_does_not_mutate_source() -> None:
+    source = TokenUsage()
+    source.merge("chat", Usage(prompt_tokens=3))
+    target = TokenUsage()
+    target.absorb(source)
+    assert source.prompt_tokens == 3
+    assert source.calls == 1
+    assert target.prompt_tokens == 3
+
+
 def test_token_usage_is_deep_copied_snapshot() -> None:
     provider = make_provider(OpenAIProvider, lambda _: httpx.Response(404), model="m")
     snapshot = provider.token_usage()

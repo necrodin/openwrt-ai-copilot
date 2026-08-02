@@ -11,7 +11,7 @@ from providers.compat_provider import OpenAICompatibleProvider
 
 class OpenRouterProvider(OpenAICompatibleProvider):
     provider_type = "openrouter"
-    capability_defaults: set[str] = frozenset({"chat", "stream", "tools"})
+    capability_defaults: set[str] = frozenset({"chat", "stream", "embeddings", "tools"})
 
 
 __all__ = ["OpenRouterProvider"]

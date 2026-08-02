@@ -30,6 +30,14 @@ from providers.config import (
     ProviderConfig,
     ProvidersConfig,
 )
+from providers.embedding import (
+    RETRYABLE_EXCEPTIONS,
+    EmbeddingError,
+    EmbeddingFactory,
+    NoEmbeddingProviderError,
+    RetryPolicy,
+    chunk_texts,
+)
 from providers.factory import (
     ProviderManager,
     available_provider_types,
@@ -38,17 +46,26 @@ from providers.factory import (
     register_provider,
     unregister_provider,
 )
+from providers.nv_embed import DEFAULT_NV_EMBED_MODEL, NVEmbedProvider
 from providers.transport import ProviderTransport
 
 __all__ = [
     "DEFAULT_BASE_URLS",
+    "DEFAULT_NV_EMBED_MODEL",
     "SUPPORTED_PROVIDER_TYPES",
     "BaseProvider",
+    "EmbeddingError",
+    "EmbeddingFactory",
+    "NVEmbedProvider",
+    "NoEmbeddingProviderError",
     "ProviderConfig",
     "ProviderManager",
     "ProviderTransport",
     "ProvidersConfig",
+    "RETRYABLE_EXCEPTIONS",
+    "RetryPolicy",
     "available_provider_types",
+    "chunk_texts",
     "create_provider",
     "create_provider_manager",
     "detect_capabilities",

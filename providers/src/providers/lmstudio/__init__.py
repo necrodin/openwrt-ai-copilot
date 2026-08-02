@@ -10,7 +10,7 @@ from providers.compat_provider import OpenAICompatibleProvider
 
 class LMStudioProvider(OpenAICompatibleProvider):
     provider_type = "lmstudio"
-    capability_defaults: set[str] = frozenset({"chat", "stream", "tools"})
+    capability_defaults: set[str] = frozenset({"chat", "stream", "embeddings", "tools"})
 
 
 __all__ = ["LMStudioProvider"]

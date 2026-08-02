@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 DEFAULT_BASE_URLS: dict[str, str] = {
     "ollama": "http://localhost:11434",
     "nim": "https://integrate.api.nvidia.com/v1",
+    "nvembed": "https://integrate.api.nvidia.com/v1",
     "openai": "https://api.openai.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "lmstudio": "http://localhost:1234/v1",
@@ -49,6 +50,9 @@ class ProviderConfig(BaseModel):
     vision_model: str = ""
     rerank_model: str = ""
     embed_dimensions: int | None = None
+    #: Maximum number of inputs per embeddings HTTP call for this provider.
+    #: The embedding platform splits larger batches automatically.
+    embed_batch_size: int | None = None
 
     timeout_seconds: float = 60.0
     verify_tls: bool = True

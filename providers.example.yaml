@@ -15,6 +15,7 @@ providers:
     base_url: http://localhost:11434
     model: qwen2.5:7b
     embed_model: nomic-embed-text
+    embed_batch_size: 64
     # vision_model: qwen2.5-vl:7b
 
   nim:
@@ -22,23 +23,35 @@ providers:
     base_url: https://integrate.api.nvidia.com/v1
     api_key_env: NVIDIA_API_KEY
     model: meta/llama-3.3-70b-instruct
-    embed_model: nvidia/llama-3.2-nv-embedqa-1b-v2
+    embed_model: nvidia/NV-Embed-QA-Mistral-4B
     rerank_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
     # Cost tracking (USD per 1k tokens) — optional.
     cost_per_1k_prompt: 0.00001
     cost_per_1k_completion: 0.00002
+
+  # Embeddings-only provider for NVIDIA NV-Embed models (via a NIM endpoint).
+  # Falls back to nvidia/NV-Embed-QA-Mistral-4B when no model is configured.
+  nvembed:
+    enabled: false
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+    embed_model: nvidia/NV-Embed-QA-Mistral-4B
+    embed_dimensions: 1024
+    embed_batch_size: 16
 
   openai:
     enabled: false
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
     model: gpt-4o-mini
+    embed_model: text-embedding-3-small
 
   openrouter:
     enabled: false
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
     model: anthropic/claude-3.5-sonnet
+    embed_model: openai/text-embedding-3-small
     extra_headers:
       HTTP-Referer: http://localhost:3000
       X-Title: OpenWrt AI Copilot
@@ -47,6 +60,7 @@ providers:
     enabled: false
     base_url: http://localhost:1234/v1
     model: local-model
+    embed_model: local-embed-model
 
   vllm:
     enabled: false

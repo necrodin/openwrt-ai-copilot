@@ -22,6 +22,7 @@ def _register_defaults() -> None:
     """Register every built-in provider type (idempotent)."""
     from providers.lmstudio import LMStudioProvider
     from providers.nim import NIMProvider
+    from providers.nv_embed import NVEmbedProvider
     from providers.ollama import OllamaProvider
     from providers.openai import OpenAIProvider
     from providers.openrouter import OpenRouterProvider
@@ -30,6 +31,7 @@ def _register_defaults() -> None:
     for cls in (
         OllamaProvider,
         NIMProvider,
+        NVEmbedProvider,
         OpenAIProvider,
         OpenRouterProvider,
         LMStudioProvider,

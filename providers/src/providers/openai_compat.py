@@ -9,6 +9,7 @@ No vendor SDK is used — plain HTTP via :class:`ProviderTransport`.
 
 from __future__ import annotations
 
+import math
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -69,9 +70,17 @@ def _chat_payload(request: ChatRequest, *, stream: bool) -> dict[str, Any]:
 def _parse_usage(data: dict[str, Any]) -> Usage:
     usage = data.get("usage") or {}
     return Usage(
-        prompt_tokens=int(usage.get("prompt_tokens") or 0),
+        prompt_tokens=int(usage.get("prompt_tokens") or usage.get("total_tokens") or 0),
         completion_tokens=int(usage.get("completion_tokens") or 0),
     )
+
+
+def normalize_vector(vector: list[float]) -> list[float]:
+    """L2-normalize a vector in place (returns a new list)."""
+    norm = math.sqrt(sum(x * x for x in vector))
+    if norm == 0:
+        return list(vector)
+    return [x / norm for x in vector]
 
 
 def parse_chat_response(data: dict[str, Any], fallback_model: str) -> ChatResponse:
@@ -127,9 +136,20 @@ async def request_chat_stream(
 
 
 async def request_embeddings(
-    transport: ProviderTransport, request: EmbeddingRequest
+    transport: ProviderTransport,
+    request: EmbeddingRequest,
+    *,
+    include_input_type: bool = False,
 ) -> EmbeddingResponse:
+    """POST to ``/embeddings`` using the OpenAI-compatible wire format.
+
+    ``include_input_type`` is True only for adapters whose endpoint understands
+    the retrieval-aware ``input_type`` field (e.g. NVIDIA NV-Embed); generic
+    providers never receive it.
+    """
     payload: dict[str, Any] = {"model": request.model, "input": request.inputs}
+    if include_input_type and request.input_type is not None:
+        payload["input_type"] = request.input_type
     if request.dimensions is not None:
         payload["dimensions"] = request.dimensions
     data = await transport.post_json("/embeddings", payload)
@@ -138,6 +158,8 @@ async def request_embeddings(
         for item in data.get("data", [])
         if item.get("embedding") is not None
     ]
+    if request.normalize:
+        vectors = [EmbeddingVector(embedding=normalize_vector(v.embedding)) for v in vectors]
     return EmbeddingResponse(
         model=data.get("model") or request.model,
         embeddings=vectors,
@@ -152,6 +174,7 @@ async def request_models(transport: ProviderTransport) -> list[ModelInfo]:
 
 __all__ = [
     "messages_to_wire",
+    "normalize_vector",
     "parse_chat_response",
     "parts_to_wire",
     "request_chat",

@@ -13,6 +13,12 @@ never hard dependencies.
 > language; answers are grounded in the live router snapshot, never invented.
 > Streaming, chat history, and Markdown rendering are included. No RAG yet.
 > See [docs/SPRINT-5.md](docs/SPRINT-5.md).
+>
+> **Sprint 6 delivered: Embedding Platform.** A provider-independent
+> `EmbeddingFactory` embeds text through any configured provider (NV-Embed,
+> OpenAI, Ollama, OpenRouter, LM Studio, vLLM) with batching, retries,
+> timeouts, and token-usage accounting. No vector DB / RAG yet.
+> See [docs/SPRINT-6.md](docs/SPRINT-6.md).
 
 ## Technology stack
 
@@ -31,7 +37,7 @@ openwrt-ai/
 ├── frontend/          Next.js web UI (home, live dashboard, AI chat)
 ├── backend/           FastAPI control plane (app package)
 ├── ai/                Provider-agnostic AI core: protocols, models, registry
-├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm)
+├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm, nvembed)
 ├── rag/               RAG pipeline (chunking / retrieval / reranking)
 ├── vision/            Vision abstraction + adapters
 ├── database/          SQLite schema, engine, session, migrations (future)
@@ -85,6 +91,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [docs/SPRINT-2.md](docs/SPRINT-2.md) — provider abstraction layer
 - [docs/SPRINT-4.md](docs/SPRINT-4.md) — live dashboard
 - [docs/SPRINT-5.md](docs/SPRINT-5.md) — AI chat
+- [docs/SPRINT-6.md](docs/SPRINT-6.md) — embedding platform
 - [docs/README.md](docs/README.md) — documentation index
 
 ## License
