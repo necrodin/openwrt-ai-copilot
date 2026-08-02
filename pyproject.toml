@@ -1,13 +1,13 @@
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["backend", "ai/src", "providers/src", "rag/src", "vision/src", "database/src", "vectorstore/src", "router-agent/src"]
+src = ["backend", "ai/src", "providers/src", "rag/src", "vision/src", "database/src", "vectorstore/src", "knowledge/src", "router-agent/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "C4", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app", "ai", "providers", "rag", "vision", "database", "vectorstore", "router_agent"]
+known-first-party = ["app", "ai", "providers", "rag", "vision", "database", "vectorstore", "knowledge", "router_agent"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

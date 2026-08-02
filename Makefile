@@ -3,7 +3,7 @@ VENV ?= .venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-PY_PACKAGES := ./database ./ai ./providers ./rag ./vision ./vectorstore ./router-agent ./backend
+PY_PACKAGES := ./database ./ai ./providers ./rag ./vision ./vectorstore ./knowledge ./router-agent ./backend
 
 .PHONY: install dev-backend dev-frontend test lint format docker-up docker-down clean
 

@@ -26,6 +26,15 @@ never hard dependencies.
 > insert, cosine similarity search, metadata filters, namespaces, pagination,
 > and versioning, all behind a config-driven `VectorStoreFactory`. No RAG yet.
 > See [docs/SPRINT-7.md](docs/SPRINT-7.md).
+>
+> **Sprint 8 delivered: Knowledge Platform.** A provider-independent knowledge
+> ingestion pipeline (`source → loader → parser → extractor → chunker →
+> indexer`) that turns Markdown, HTML, PDF, TXT, JSON, YAML, and XML documents
+> into chunked, versioned, metadata-rich `KnowledgeDocument`s — from the OpenWrt
+> catalog, local files, or in-memory sources. Incremental indexing, checksum
+> duplicate detection, pure-Python language detection, and an optional
+> filesystem-persisted indexer. No Retrieval / RAG yet.
+> See [docs/SPRINT-8.md](docs/SPRINT-8.md).
 
 ## Technology stack
 
@@ -34,7 +43,7 @@ never hard dependencies.
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS v4, shadcn/ui |
 | Backend | FastAPI, Python 3.12 |
 | Database | SQLite (via SQLAlchemy 2) |
-| AI layer | Provider-agnostic Python packages (`ai`, `providers`, `rag`, `vision`, `vectorstore`) |
+| AI layer | Provider-agnostic Python packages (`ai`, `providers`, `rag`, `vision`, `vectorstore`, `knowledge`) |
 | Deployment | Docker, Docker Compose |
 
 ## Repository layout
@@ -48,6 +57,7 @@ openwrt-ai/
 ├── rag/               RAG pipeline (chunking / retrieval / reranking)
 ├── vision/            Vision abstraction + adapters
 ├── vectorstore/       Provider-independent vector DB layer (sqlite, qdrant, chroma, faiss)
+├── knowledge/         Provider-independent knowledge platform (sources, parsers, chunkers, indexers)
 ├── database/          SQLite schema, engine, session, migrations (future)
 ├── router-agent/      On-device agent (data collection)
 ├── docker/            Docker Compose topologies
@@ -101,6 +111,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [docs/SPRINT-5.md](docs/SPRINT-5.md) — AI chat
 - [docs/SPRINT-6.md](docs/SPRINT-6.md) — embedding platform
 - [docs/SPRINT-7.md](docs/SPRINT-7.md) — vector database layer
+- [docs/SPRINT-8.md](docs/SPRINT-8.md) — knowledge platform
 - [docs/README.md](docs/README.md) — documentation index
 
 ## License

@@ -9,3 +9,4 @@
 | [SPRINT-5.md](SPRINT-5.md) | Sprint 5: AI chat (streaming, chat history, Markdown, no RAG). |
 | [SPRINT-6.md](SPRINT-6.md) | Sprint 6: provider-independent embedding platform. |
 | [SPRINT-7.md](SPRINT-7.md) | Sprint 7: provider-independent vector database layer. |
+| [SPRINT-8.md](SPRINT-8.md) | Sprint 8: provider-independent knowledge platform. |
