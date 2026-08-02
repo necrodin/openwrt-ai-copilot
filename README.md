@@ -35,6 +35,14 @@ never hard dependencies.
 > duplicate detection, pure-Python language detection, and an optional
 > filesystem-persisted indexer. No Retrieval / RAG yet.
 > See [docs/SPRINT-8.md](docs/SPRINT-8.md).
+>
+> **Sprint 9A delivered: Retrieval Core.** The provider-independent retrieval
+> side of RAG: `VectorRetriever` (embed → search → merge → dedupe → rank),
+> `DefaultContextBuilder`, `DefaultPromptBuilder`, numbered citations,
+> rolling-window conversation memory with compression and snapshots, token
+> budgeting with automatic context reduction, and TTL/checksum-keyed caching.
+> The pipeline ends at a ready-for-LLM `PromptRequest`/`PromptResponse` — no LLM
+> connection, no streaming. See [docs/SPRINT-9A.md](docs/SPRINT-9A.md).
 
 ## Technology stack
 
@@ -54,7 +62,7 @@ openwrt-ai/
 ├── backend/           FastAPI control plane (app package)
 ├── ai/                Provider-agnostic AI core: protocols, models, registry
 ├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm, nvembed)
-├── rag/               RAG pipeline (chunking / retrieval / reranking)
+├── rag/               Retrieval core (retriever, context, prompt, memory, tokens, cache)
 ├── vision/            Vision abstraction + adapters
 ├── vectorstore/       Provider-independent vector DB layer (sqlite, qdrant, chroma, faiss)
 ├── knowledge/         Provider-independent knowledge platform (sources, parsers, chunkers, indexers)
@@ -112,6 +120,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [docs/SPRINT-6.md](docs/SPRINT-6.md) — embedding platform
 - [docs/SPRINT-7.md](docs/SPRINT-7.md) — vector database layer
 - [docs/SPRINT-8.md](docs/SPRINT-8.md) — knowledge platform
+- [docs/SPRINT-9A.md](docs/SPRINT-9A.md) — retrieval core
 - [docs/README.md](docs/README.md) — documentation index
 
 ## License
