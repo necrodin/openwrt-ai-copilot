@@ -7,4 +7,4 @@ kernel, and logs, and returns ONE normalized JSON snapshot. There is no AI and
 no dashboard.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.6.0a1"
