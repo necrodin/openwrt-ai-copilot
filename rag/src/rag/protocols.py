@@ -70,6 +70,25 @@ class ContextBuilder(ABC):
         """Group, rank, cite, and enrich the retrieved chunks into context."""
 
 
+class Reranker(ABC):
+    """Re-score retrieved chunks against the query, best first.
+
+    Real implementations (e.g. NVIDIA NIM) are injected via the ``providers``
+    package; :class:`rag.reranker.DummyReranker` preserves the vector-store
+    order when no rerank-capable provider is configured.
+    """
+
+    @abstractmethod
+    async def rerank(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+        *,
+        top_n: int | None = None,
+    ) -> list[RetrievedChunk]:
+        """Return the top ``top_n`` chunks ordered by reranked relevance."""
+
+
 class PromptBuilder(ABC):
     """Render a :class:`PromptContext` into a ready-for-LLM request."""
 
@@ -169,6 +188,7 @@ __all__ = [
     "MemoryStore",
     "PromptBuilder",
     "PromptOptimizer",
+    "Reranker",
     "Retriever",
     "TokenEstimator",
 ]

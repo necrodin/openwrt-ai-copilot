@@ -3,10 +3,16 @@
 Sprint 9A: provider-independent retrieval pipeline — retrieval, context
 building, prompt building, citations, conversation memory, token budgeting,
 and caching. No LLM connection, no streaming; the pipeline ends at a ready
-``PromptRequest``/``PromptResponse`` that a later sprint hands to the AI layer.
+``PromptRequest``/``PromptResponse`` that the AI layer (``rag.ai``) turns into
+a grounded, cited answer.
+
+Sprint 9B: a ``reranker`` hook (see :class:`rag.protocols.Reranker` and
+:class:`rag.reranker.DummyReranker`) lets an injected reranker re-score
+retrieved chunks before the context is built; the ``rag.ai`` subpackage
+integrates the core with the ``providers`` package to produce answers.
 
 Pipeline: ``Question -> Embedding -> VectorStore -> Merge Results -> Remove
-Duplicates -> Context Builder -> Prompt Builder -> Ready For LLM``.
+Duplicates -> Rerank (optional) -> Context Builder -> Prompt Builder -> LLM``.
 
 The package depends only on the ``vectorstore`` interface plus its own modules;
 embedding and language detection are injected callables, keeping the core
@@ -56,6 +62,8 @@ from rag.models import (
     TokenCounts,
 )
 from rag.prompt import DefaultPromptBuilder, DefaultPromptOptimizer
+from rag.protocols import Reranker
+from rag.reranker import DummyReranker
 from rag.retriever import VectorRetriever
 from rag.tokens import HeuristicTokenEstimator, TokenBudgetManager
 
@@ -76,6 +84,7 @@ __all__ = [
     "DefaultContextBuilder",
     "DefaultPromptBuilder",
     "DefaultPromptOptimizer",
+    "DummyReranker",
     "EmbeddingError",
     "HeuristicTokenEstimator",
     "InMemoryContextCache",
@@ -87,6 +96,7 @@ __all__ = [
     "PromptContext",
     "PromptRequest",
     "PromptResponse",
+    "Reranker",
     "RetrievalConfig",
     "RetrievalEngine",
     "RetrievalError",

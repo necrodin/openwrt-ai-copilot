@@ -25,6 +25,7 @@ from rag.protocols import (
     LanguageDetector,
     PromptBuilder,
     PromptOptimizer,
+    Reranker,
     Retriever,
 )
 from rag.retriever import VectorRetriever
@@ -45,6 +46,7 @@ class RetrievalEngine:
         memory: ConversationMemory | None = None,
         cache: ContextCache | None = None,
         language_detector: LanguageDetector = None,
+        reranker: Reranker | None = None,
         config: RetrievalConfig | None = None,
     ) -> None:
         self.retriever = retriever
@@ -67,6 +69,7 @@ class RetrievalEngine:
         self.memory = memory
         self.cache = cache
         self.language_detector = language_detector
+        self.reranker = reranker
 
     # ------------------------------------------------------------------ #
     # Retrieval                                                          #
@@ -95,6 +98,14 @@ class RetrievalEngine:
             filters=filters,
             namespace=namespace,
         )
+        if self.reranker is not None:
+            chunks = await self.reranker.rerank(
+                query,
+                chunks,
+                top_n=top_k or self.config.default_top_k,
+            )
+            for position, chunk in enumerate(chunks, start=1):
+                chunk.rank = position
         if use_cache:
             await self.cache.set_retrieval(key, chunks)
         return chunks

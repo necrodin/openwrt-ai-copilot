@@ -3,12 +3,17 @@
 Everything goes through the provider interface (``ChatProvider``) — never a
 provider SDK directly. ``POST /chat`` returns a full reply; ``POST /chat/stream``
 streams a Server-Sent Events feed. Both persist the conversation to SQLite.
+
+When RAG chat is enabled (``rag.yaml`` present) the requests are routed through
+the :class:`rag.ai.RAGEngine` instead, grounding answers in the retrieval core
+and returning citations; the router-state path is untouched otherwise.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
@@ -17,12 +22,17 @@ from app.core.config import settings
 from app.db.chat_store import ChatStore
 from app.schemas.chat import ChatRequestBody
 from app.services.chat_service import ChatService, NoChatProviderError
+from app.services.rag_service import RAGService
 
 router = APIRouter(tags=["chat"])
 
 
 def _chat_service(request: Request) -> ChatService:
     return request.app.state.chat_service
+
+
+def _rag_service(request: Request) -> RAGService | None:
+    return getattr(request.app.state, "rag_service", None)
 
 
 def _sse(payload: dict) -> str:
@@ -52,13 +62,26 @@ def _store_turn(
     )
 
 
+def _provider_preference(body: ChatRequestBody, rag_service: RAGService | None) -> str | None:
+    if body.provider:
+        return body.provider
+    if rag_service is not None and rag_service.config.provider:
+        return rag_service.config.provider
+    return None
+
+
+def _citations_json(citations: list[Any]) -> list[dict]:
+    return [citation.model_dump() for citation in citations]
+
+
 @router.post("/chat")
 async def chat(request: Request, body: ChatRequestBody) -> Response:
     """Non-streaming chat. Returns the full assistant reply."""
     service = _chat_service(request)
     store = request.app.state.chat_store
+    rag_service = _rag_service(request)
     try:
-        provider = service.provider_for(body.provider)
+        provider = service.provider_for(_provider_preference(body, rag_service))
     except NoChatProviderError as exc:
         return Response(
             content=json.dumps({"detail": str(exc)}),
@@ -67,13 +90,55 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
         )
 
     history = _history_turns(store, body.session_id)
+    _store_turn(store, body.session_id, "user", body.message)
+
+    if rag_service is not None:
+        rag_service.seed_history(body.session_id, history)
+        engine = rag_service.engine_for(body.session_id, provider)
+        try:
+            response = await engine.answer(
+                body.message,
+                conversation_id=body.session_id,
+                model=body.model,
+                temperature=body.temperature,
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a clean error
+            return Response(
+                content=json.dumps({"detail": f"AI request failed: {exc}"}),
+                status_code=502,
+                media_type="application/json",
+            )
+        _store_turn(
+            store,
+            body.session_id,
+            "assistant",
+            response.answer,
+            provider=provider.name,
+            model=response.model,
+        )
+        return Response(
+            content=json.dumps(
+                {
+                    "session_id": body.session_id,
+                    "reply": response.answer,
+                    "provider": provider.name,
+                    "model": response.model,
+                    "citations": _citations_json(response.citations),
+                    "usage": response.usage.model_dump(),
+                    "rag": True,
+                },
+                ensure_ascii=False,
+            ),
+            status_code=200,
+            media_type="application/json",
+        )
+
     chat_request = service.compose(
         message=body.message,
         history=history,
         model=body.model,
         temperature=body.temperature,
     )
-    _store_turn(store, body.session_id, "user", body.message)
     try:
         response = await service.complete(provider, chat_request)
     except Exception as exc:  # noqa: BLE001 - surfaced as a clean error
@@ -116,23 +181,77 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
     async def generator() -> AsyncIterator[str]:
         service = _chat_service(request)
         store = request.app.state.chat_store
+        rag_service = _rag_service(request)
         try:
-            provider = service.provider_for(body.provider)
+            provider = service.provider_for(_provider_preference(body, rag_service))
         except NoChatProviderError as exc:
             yield _sse({"type": "error", "message": str(exc)})
             return
 
         history = _history_turns(store, body.session_id)
+        _store_turn(store, body.session_id, "user", body.message)
+        yield _sse({"type": "session", "session_id": body.session_id})
+
+        if rag_service is not None:
+            rag_service.seed_history(body.session_id, history)
+            engine = rag_service.engine_for(body.session_id, provider)
+            reply_parts: list[str] = []
+            streamed_model = ""
+            try:
+                async for event in engine.stream(
+                    body.message,
+                    conversation_id=body.session_id,
+                    model=body.model,
+                    temperature=body.temperature,
+                ):
+                    if event.type == "delta":
+                        reply_parts.append(event.content)
+                        streamed_model = streamed_model or event.model
+                        yield _sse({"type": "delta", "content": event.content})
+                    elif event.type == "error":
+                        yield _sse({"type": "error", "message": event.error})
+                        return
+                    elif event.type in ("retrieval", "citations"):
+                        yield _sse(
+                            {
+                                "type": event.type,
+                                "citations": _citations_json(event.citations),
+                                "usage": event.usage.model_dump(),
+                            }
+                        )
+                    elif event.type in ("session", "generation_started"):
+                        yield _sse({"type": event.type, "session_id": body.session_id})
+            except Exception as exc:  # noqa: BLE001 - keep streaming contract
+                yield _sse({"type": "error", "message": f"AI stream failed: {exc}"})
+                return
+
+            reply = "".join(reply_parts)
+            _store_turn(
+                store,
+                body.session_id,
+                "assistant",
+                reply,
+                provider=provider.name,
+                model=streamed_model or body.model or provider.config.model or "default",
+            )
+            yield _sse(
+                {
+                    "type": "done",
+                    "reply": reply,
+                    "provider": provider.name,
+                    "model": streamed_model or body.model or provider.config.model or "default",
+                    "rag": True,
+                }
+            )
+            return
+
         chat_request = service.compose(
             message=body.message,
             history=history,
             model=body.model,
             temperature=body.temperature,
         )
-        _store_turn(store, body.session_id, "user", body.message)
-        yield _sse({"type": "session", "session_id": body.session_id})
-
-        reply_parts: list[str] = []
+        reply_parts = []
         try:
             async for chunk in provider.stream(chat_request):
                 if chunk.delta:

@@ -47,6 +47,7 @@ from providers.factory import (
     unregister_provider,
 )
 from providers.nv_embed import DEFAULT_NV_EMBED_MODEL, NVEmbedProvider
+from providers.rerank import NoRerankProviderError, RerankError, RerankFactory
 from providers.transport import ProviderTransport
 
 __all__ = [
@@ -58,7 +59,10 @@ __all__ = [
     "EmbeddingFactory",
     "NVEmbedProvider",
     "NoEmbeddingProviderError",
+    "NoRerankProviderError",
     "ProviderConfig",
+    "RerankError",
+    "RerankFactory",
     "ProviderManager",
     "ProviderTransport",
     "ProvidersConfig",

@@ -1,0 +1,45 @@
+# Example RAG configuration for OpenWrt AI Copilot.
+#
+# Copy this file to `rag.yaml` (next to wherever the backend runs, or set the
+# RAG_CONFIG_FILE env var) to enable grounded, cited chat. When `rag.yaml` is
+# absent the backend keeps the existing router-state chat path unchanged.
+#
+# RAG retrieval reads from a SQLite vector store (see RAG_VECTOR_STORE_PATH,
+# default ./data/rag_vectors.sqlite3). Populate it with your knowledge base
+# (document -> chunk -> embedding) via the vectorstore API; empty stores answer
+# without citations.
+
+# Vector collection to search and the namespace inside it.
+collection: documents
+namespace: default
+
+# Embedding dimensions the collection is created with on first use.
+vector_dimensions: 768
+
+# Retrieval breadth: candidate chunks per query, max source documents in the
+# context, and the minimum similarity for a chunk to be included (0..1).
+top_k: 8
+max_documents: 6
+score_threshold: 0.0
+
+# Chat provider/model selection. `provider` prefers a named chat provider from
+# providers.yaml; `model` overrides its default model.
+provider: ollama
+model: ""
+temperature: 0.2
+
+# Query embedding provider/model (empty = the provider's configured embed model).
+embed_provider: ollama
+embed_model: nomic-embed-text
+
+# Reranker selection. Leave both empty to keep the vector-store order
+# (deterministic). Set `rerank_provider` to a rerank-capable provider (e.g.
+# `nim`) and `rerank_model` to its model to re-score chunks before prompting.
+rerank_provider: ""
+rerank_model: ""
+
+# Conversation memory, caching, and on-demand context expansion.
+memory_enabled: true
+memory_window: 20
+use_cache: true
+context_expansion: true

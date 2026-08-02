@@ -11,3 +11,4 @@
 | [SPRINT-7.md](SPRINT-7.md) | Sprint 7: provider-independent vector database layer. |
 | [SPRINT-8.md](SPRINT-8.md) | Sprint 8: provider-independent knowledge platform. |
 | [SPRINT-9A.md](SPRINT-9A.md) | Sprint 9A: provider-independent retrieval core (retrieval, context, prompt, memory, tokens, cache). |
+| [SPRINT-9B.md](SPRINT-9B.md) | Sprint 9B: retrieval engine → AI chat integration (grounded, cited, streaming RAG). |

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openwrt-ai-rag"
-version = "0.5.0a1"
-description = "OpenWrt AI Copilot — provider-independent retrieval core (retrieval, context, prompt, memory, tokens, cache)"
+version = "0.5.0a2"
+description = "OpenWrt AI Copilot — provider-independent retrieval core + RAG integration (retrieval, context, prompt, memory, tokens, cache, rerank, grounded chat)"
 requires-python = ">=3.12"
 dependencies = [
     "openwrt-ai-vectorstore>=0.1.0",
@@ -14,6 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 yaml = ["pyyaml>=6.0"]
+ai = ["openwrt-ai-core>=0.1.0", "openwrt-ai-providers>=0.1.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rag"]

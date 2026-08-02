@@ -43,6 +43,14 @@ never hard dependencies.
 > budgeting with automatic context reduction, and TTL/checksum-keyed caching.
 > The pipeline ends at a ready-for-LLM `PromptRequest`/`PromptResponse` — no LLM
 > connection, no streaming. See [docs/SPRINT-9A.md](docs/SPRINT-9A.md).
+>
+> **Sprint 9B delivered: Retrieval → AI Chat integration.** The retrieval engine
+> is wired into AI Chat as an opt-in RAG service (`rag.yaml`): queries are
+> embedded, retrieved, optionally reranked (e.g. NVIDIA NIM), grounded into the
+> prompt, and answered with streaming — every reply carrying citations with
+> similarity/rerank scores, per-conversation memory, and context expansion. The
+> existing router-state chat remains the default. See
+> [docs/SPRINT-9B.md](docs/SPRINT-9B.md).
 
 ## Technology stack
 
@@ -62,7 +70,7 @@ openwrt-ai/
 ├── backend/           FastAPI control plane (app package)
 ├── ai/                Provider-agnostic AI core: protocols, models, registry
 ├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm, nvembed)
-├── rag/               Retrieval core (retriever, context, prompt, memory, tokens, cache)
+├── rag/               Retrieval core (retriever, context, prompt, memory, tokens, cache, rerank, rag.ai integration)
 ├── vision/            Vision abstraction + adapters
 ├── vectorstore/       Provider-independent vector DB layer (sqlite, qdrant, chroma, faiss)
 ├── knowledge/         Provider-independent knowledge platform (sources, parsers, chunkers, indexers)
@@ -121,6 +129,7 @@ docker compose -f docker/docker-compose.yml up --build
 - [docs/SPRINT-7.md](docs/SPRINT-7.md) — vector database layer
 - [docs/SPRINT-8.md](docs/SPRINT-8.md) — knowledge platform
 - [docs/SPRINT-9A.md](docs/SPRINT-9A.md) — retrieval core
+- [docs/SPRINT-9B.md](docs/SPRINT-9B.md) — retrieval → AI chat integration
 - [docs/README.md](docs/README.md) — documentation index
 
 ## License

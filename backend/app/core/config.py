@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     # no providers configured; the app still boots.
     provider_config_file: str = "providers.yaml"
 
+    # Path to the RAG configuration file. Missing file = RAG chat is disabled;
+    # the existing router-state chat path is used unchanged.
+    rag_config_file: str = "rag.yaml"
+
+    # SQLite vector store backing RAG retrieval (created on first use).
+    rag_vector_store_path: str = "./data/rag_vectors.sqlite3"
+
     # Router being monitored by the live dashboard. An empty transport/device
     # falls back to a simulated source so the dashboard works out of the box.
     router_device_transport: str = ""  # "", "ssh", "local", or "simulated"
