@@ -240,13 +240,20 @@ class ChatService:
     ) -> ChatRequest:
         """Build the full request: system prompt + stored history + user message.
 
-        ``router_context`` (markdown from the router context service) is appended
-        to the system prompt when the request is router-aware; when omitted the
-        system prompt is unchanged.
+        ``router_context`` (markdown from the router context service) is inserted
+        into the system prompt inside a dedicated section when the request is
+        router-aware; when omitted the system prompt is unchanged.
         """
         system = self.system_prompt()
         if router_context:
-            system = f"{system}\n\nROUTER CONTEXT:\n{router_context}"
+            system = (
+                f"{system}\n\n### Router Context\n{router_context}\n"
+                "### End Router Context\n\n"
+                "If Router Context exists, prefer factual values from it over "
+                "model assumptions.\n"
+                "Never invent router values.\n"
+                "If Router Context is empty, answer normally."
+            )
         messages = [ChatMessage(role="system", content=system)]
         for role, content in history:
             if role in ("user", "assistant"):

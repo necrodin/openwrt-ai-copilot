@@ -230,7 +230,10 @@ def test_chat_auto_detect_injects_router_context() -> None:
 
     sent = seen["messages"]
     assert sent[0]["role"] == "system"
-    assert "ROUTER CONTEXT" in sent[0]["content"]
+    assert "### Router Context" in sent[0]["content"]
+    assert "### End Router Context" in sent[0]["content"]
+    assert "prefer factual values from it over model assumptions" in sent[0]["content"]
+    assert "Never invent router values" in sent[0]["content"]
     assert "## Router" in sent[0]["content"]
     assert "- Hostname: demo-router" in sent[0]["content"]
     assert "## CPU" in sent[0]["content"]
@@ -261,7 +264,8 @@ def test_chat_auto_detect_skips_non_router_context() -> None:
     assert response.status_code == 200
     assert response.json()["router_context"] is None
     sent = seen["messages"]
-    assert "ROUTER CONTEXT" not in sent[0]["content"]
+    assert "### Router Context" not in sent[0]["content"]
+    assert "### End Router Context" not in sent[0]["content"]
 
 
 def test_chat_router_aware_unavailable_router_continues() -> None:
@@ -282,7 +286,8 @@ def test_chat_router_aware_unavailable_router_continues() -> None:
     assert response.json()["reply"] == "Hello router"
     assert response.json()["router_context"] is None
     sent = seen["messages"]
-    assert "ROUTER CONTEXT" not in sent[0]["content"]
+    assert "### Router Context" not in sent[0]["content"]
+    assert "### End Router Context" not in sent[0]["content"]
 
 
 def test_chat_stream_auto_detect_injects_router_context() -> None:
@@ -303,7 +308,8 @@ def test_chat_stream_auto_detect_injects_router_context() -> None:
     assert '"router_context"' in response.text
     sent = seen["messages"]
     assert sent[0]["role"] == "system"
-    assert "ROUTER CONTEXT" in sent[0]["content"]
+    assert "### Router Context" in sent[0]["content"]
+    assert "### End Router Context" in sent[0]["content"]
 
 
 def test_chat_router_aware_no_router_intent_skips_tool() -> None:
@@ -323,7 +329,8 @@ def test_chat_router_aware_no_router_intent_skips_tool() -> None:
     assert response.status_code == 200
     assert response.json()["reply"] == "Hello router"
     sent = seen["messages"]
-    assert "ROUTER CONTEXT" not in sent[0]["content"]
+    assert "### Router Context" not in sent[0]["content"]
+    assert "### End Router Context" not in sent[0]["content"]
 
 
 def test_chat_router_aware_executes_through_executor() -> None:
@@ -356,7 +363,8 @@ def test_chat_router_aware_executes_through_executor() -> None:
     assert response.json()["reply"] == "Hello router"
     assert calls == ["system"]
     sent = seen["messages"]
-    assert "ROUTER CONTEXT" in sent[0]["content"]
+    assert "### Router Context" in sent[0]["content"]
+    assert "### End Router Context" in sent[0]["content"]
 
 
 def test_chat_router_aware_reuses_cached_results() -> None:
@@ -405,6 +413,35 @@ def test_compose_accepts_router_context() -> None:
         router_context="# Router markdown",
     )
     assert request.messages[0].role == "system"
-    assert "ROUTER CONTEXT" in request.messages[0].content
+    assert "### Router Context" in request.messages[0].content
+    assert "### End Router Context" in request.messages[0].content
     assert "# Router markdown" in request.messages[0].content
     assert request.messages[-1].content == "hi"
+
+
+def test_compose_injects_router_context_section() -> None:
+    service = ChatService(ProviderManager({}), lambda: SNAPSHOT)
+    request = service.compose(
+        message="hi",
+        history=[],
+        router_context="# Router markdown",
+    )
+    system = request.messages[0].content
+    section = system.split("### Router Context\n", 1)[1].split(
+        "\n### End Router Context",
+        1,
+    )[0]
+    assert section.strip() == "# Router markdown"
+
+
+def test_compose_without_router_context_keeps_prompt_unchanged() -> None:
+    service = ChatService(ProviderManager({}), lambda: SNAPSHOT)
+    plain = service.compose(message="hi", history=[])
+    with_context = service.compose(
+        message="hi",
+        history=[],
+        router_context="# Router markdown",
+    )
+    assert plain.messages[0].content == service.system_prompt()
+    assert "### Router Context" not in plain.messages[0].content
+    assert "### Router Context" in with_context.messages[0].content
