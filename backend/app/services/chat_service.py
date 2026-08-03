@@ -17,6 +17,7 @@ from collections.abc import Callable
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
 from app.services.router_tool import RouterTool
+from app.services.router_tool_executor import RouterToolExecutor
 from app.services.router_tool_registry import RouterToolRegistry
 from app.services.router_tool_selector import RouterToolSelector
 from providers.base import BaseProvider
@@ -62,6 +63,7 @@ class ChatService:
         router_tool: RouterTool | None = None,
         registry: RouterToolRegistry | None = None,
         selector: RouterToolSelector | None = None,
+        executor: RouterToolExecutor | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
@@ -70,6 +72,7 @@ class ChatService:
             registry = self._build_registry(router_tool)
         self._registry = registry
         self._selector = selector if selector is not None else RouterToolSelector(registry)
+        self._executor = executor if executor is not None else RouterToolExecutor(registry)
 
     @staticmethod
     def _build_registry(router_tool: RouterTool | None) -> RouterToolRegistry:
@@ -83,19 +86,26 @@ class ChatService:
         return registry
 
     def router_context_markdown(self, message: str) -> str | None:
-        """Collect router context markdown for ``message`` via the tool selector.
+        """Collect router context markdown for ``message``.
 
-        The selector picks which Router Tool(s) the request needs from the
-        registry; when none are required (or the router is unavailable) this
-        returns ``None`` and no tool execution happens.
+        The selector turns the message into tool requests; the executor runs them
+        sequentially. When no requests are needed, or execution yields nothing
+        usable, this returns ``None`` and the chat proceeds without the router
+        section.
         """
         if self._router_tool is None:
             return None
-        intents = self._selector.select(message)
-        if not intents:
+        requests = self._selector.select(message)
+        if not requests:
             return None
         try:
-            return self._router_tool.render_markdown(intents=intents)
+            results = self._executor.execute(requests)
+        except Exception:
+            return None
+        if not any(result.ok for result in results):
+            return None
+        try:
+            return self._router_tool.render_markdown(intents=requests)
         except Exception:
             return None
 

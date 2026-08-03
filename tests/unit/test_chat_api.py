@@ -20,6 +20,7 @@ from app.schemas.dashboard import DashboardUpdate
 from app.services.chat_service import ChatService
 from app.services.demo_source import build_simulated_snapshot
 from app.services.router_tool import RouterTool
+from app.services.router_tool_executor import RouterToolResult
 from providers.factory import ProviderManager
 from providers.openai import OpenAIProvider
 from tests.unit.providers_helpers import make_provider
@@ -318,6 +319,39 @@ def test_chat_router_aware_no_router_intent_skips_tool() -> None:
     assert response.json()["reply"] == "Hello router"
     sent = seen["messages"]
     assert "ROUTER CONTEXT" not in sent[0]["content"]
+
+
+def test_chat_router_aware_executes_through_executor() -> None:
+    seen: dict = {}
+    calls: list[str] = []
+
+    class RecordingExecutor:
+        def execute(self, requests: list[str]):
+            calls.extend(requests)
+            return [
+                RouterToolResult(name=name, ok=True, result={"hostname": "demo-router"})
+                for name in requests
+            ]
+
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        service = client.app.state.chat_service
+        service._executor = RecordingExecutor()  # noqa: SLF001
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "session_id": "ra6",
+                "message": "show router system",
+                "router_aware": True,
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Hello router"
+    assert calls == ["system"]
+    sent = seen["messages"]
+    assert "ROUTER CONTEXT" in sent[0]["content"]
 
 
 def test_compose_accepts_router_context() -> None:
