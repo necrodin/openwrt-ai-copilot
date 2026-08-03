@@ -20,6 +20,7 @@ from app.services.router_context_cache import RouterContextCache
 from app.services.router_diagnosis import RouterDiagnosisEngine
 from app.services.router_intent_detector import RouterIntentDetector
 from app.services.router_manager import RegisteredRouter, RouterManager, UnknownRouterError
+from app.services.router_recommendation import RouterRecommendationEngine
 from app.services.router_snapshot import RouterSnapshotService
 from app.services.router_tool import RouterTool
 from app.services.router_tool_executor import RouterToolExecutor
@@ -74,6 +75,7 @@ class ChatService:
         snapshot_service: RouterSnapshotService | None = None,
         router_manager: RouterManager | None = None,
         diagnosis_engine: RouterDiagnosisEngine | None = None,
+        recommendation_engine: RouterRecommendationEngine | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
@@ -81,6 +83,11 @@ class ChatService:
         self._router_manager = router_manager
         self._diagnosis_engine = (
             diagnosis_engine if diagnosis_engine is not None else RouterDiagnosisEngine()
+        )
+        self._recommendation_engine = (
+            recommendation_engine
+            if recommendation_engine is not None
+            else RouterRecommendationEngine()
         )
         if router_manager is None:
             if registry is None:
@@ -187,6 +194,11 @@ class ChatService:
             diagnosis_markdown = diagnosis.render_markdown()
             if diagnosis_markdown is not None:
                 markdown = f"{markdown}\n\n{diagnosis_markdown}"
+            if diagnosis.findings:
+                recommendations = self._recommendation_engine.generate(diagnosis)
+                recommendations_markdown = recommendations.render_markdown()
+                if recommendations_markdown is not None:
+                    markdown = f"{markdown}\n\n{recommendations_markdown}"
             return markdown
         except Exception:
             return None
