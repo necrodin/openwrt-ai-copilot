@@ -17,6 +17,7 @@ from collections.abc import Callable
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
 from app.services.router_tool import RouterTool
+from app.services.router_tool_registry import RouterToolRegistry
 from app.services.router_tool_selector import RouterToolSelector
 from providers.base import BaseProvider
 from providers.factory import ProviderManager
@@ -59,19 +60,34 @@ class ChatService:
         snapshot: Callable[[], DeviceSnapshot | None],
         *,
         router_tool: RouterTool | None = None,
+        registry: RouterToolRegistry | None = None,
         selector: RouterToolSelector | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
         self._router_tool = router_tool
-        self._selector = selector if selector is not None else RouterToolSelector()
+        if registry is None:
+            registry = self._build_registry(router_tool)
+        self._registry = registry
+        self._selector = selector if selector is not None else RouterToolSelector(registry)
+
+    @staticmethod
+    def _build_registry(router_tool: RouterTool | None) -> RouterToolRegistry:
+        registry = RouterToolRegistry()
+        if router_tool is not None:
+            registry.register("system", router_tool.get_system_info)
+            registry.register("cpu", router_tool.get_cpu_info)
+            registry.register("memory", router_tool.get_memory_info)
+            registry.register("storage", router_tool.get_storage_info)
+            registry.register("network", router_tool.get_network_info)
+        return registry
 
     def router_context_markdown(self, message: str) -> str | None:
         """Collect router context markdown for ``message`` via the tool selector.
 
-        The selector picks which Router Tool(s) the request needs; when none are
-        required (or the router is unavailable) this returns ``None`` and no tool
-        execution happens.
+        The selector picks which Router Tool(s) the request needs from the
+        registry; when none are required (or the router is unavailable) this
+        returns ``None`` and no tool execution happens.
         """
         if self._router_tool is None:
             return None

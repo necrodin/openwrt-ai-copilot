@@ -1,16 +1,16 @@
 """Router Tool selector: decides which Router Tools a chat request needs.
 
 The selector inspects the user's message and maps it to the read-only tool
-intents that should be executed. When no router information is required it
-returns an empty list so the chat pipeline can skip Router Tool execution
-entirely.
+intents that should be executed. Available tools come from a
+:class:`RouterToolRegistry`; when no router information is required it returns
+an empty list so the chat pipeline can skip Router Tool execution entirely.
 """
 
 from __future__ import annotations
 
-ToolIntent = str  # one of: system, cpu, memory, storage, network
+from app.services.router_tool_registry import RouterToolRegistry
 
-_SUPPORTED_INTENTS = ("system", "cpu", "memory", "storage", "network")
+ToolIntent = str  # one of: system, cpu, memory, storage, network
 
 _KEYWORDS: dict[ToolIntent, tuple[str, ...]] = {
     "system": (
@@ -47,12 +47,18 @@ _KEYWORDS: dict[ToolIntent, tuple[str, ...]] = {
 class RouterToolSelector:
     """Maps a user message to the Router Tool intents it requires."""
 
+    def __init__(self, registry: RouterToolRegistry | None = None) -> None:
+        self._registry = registry if registry is not None else RouterToolRegistry()
+
     def select(self, message: str) -> list[ToolIntent]:
-        """Return the tool intents required for ``message`` (may be empty)."""
+        """Return the tool intents required for ``message`` (may be empty).
+
+        Only intents registered in the underlying registry are considered.
+        """
         text = message.lower()
         intents = [
-            intent
-            for intent in _SUPPORTED_INTENTS
-            if any(keyword in text for keyword in _KEYWORDS[intent])
+            name
+            for name in self._registry.available
+            if any(keyword in text for keyword in _KEYWORDS.get(name, ()))
         ]
         return intents

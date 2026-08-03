@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import pytest
 
+from app.services.router_tool_registry import RouterToolRegistry
 from app.services.router_tool_selector import RouterToolSelector
 
 
+def _registry() -> RouterToolRegistry:
+    registry = RouterToolRegistry()
+    for name in ("system", "cpu", "memory", "storage", "network"):
+        registry.register(name, lambda: None)
+    return registry
+
+
 def _selector() -> RouterToolSelector:
-    return RouterToolSelector()
+    return RouterToolSelector(_registry())
 
 
 def test_select_system_intent() -> None:
@@ -44,6 +52,18 @@ def test_select_all_intents() -> None:
 
 def test_select_no_router_info() -> None:
     assert _selector().select("hello, how are you today?") == []
+
+
+def test_select_only_registered_intents() -> None:
+    registry = RouterToolRegistry()
+    registry.register("cpu", lambda: None)
+    selector = RouterToolSelector(registry)
+    assert selector.select("how high is the cpu load?") == ["cpu"]
+    assert "network" not in selector.select("show me the wan interfaces")
+
+
+def test_select_empty_registry() -> None:
+    assert RouterToolSelector(RouterToolRegistry()).select("cpu memory network") == []
 
 
 @pytest.mark.parametrize(
