@@ -212,7 +212,7 @@ def test_chat_sessions_lists_known_sessions() -> None:
 # ── router-aware chat ─────────────────────────────────────────────────────────
 
 
-def test_chat_router_aware_injects_router_context() -> None:
+def test_chat_auto_detect_injects_router_context() -> None:
     seen: dict = {}
     with _client(
         _manager(seen),
@@ -223,7 +223,6 @@ def test_chat_router_aware_injects_router_context() -> None:
             json={
                 "session_id": "ra1",
                 "message": "show router system, cpu, memory, storage and network",
-                "router_aware": True,
             },
         )
     assert response.status_code == 200
@@ -242,7 +241,7 @@ def test_chat_router_aware_injects_router_context() -> None:
     assert sent[-1] == {"role": "user", "content": message}
 
 
-def test_chat_not_router_aware_no_router_context() -> None:
+def test_chat_auto_detect_skips_non_router_context() -> None:
     seen: dict = {}
     with _client(
         _manager(seen),
@@ -252,7 +251,7 @@ def test_chat_not_router_aware_no_router_context() -> None:
             "/api/v1/chat",
             json={
                 "session_id": "ra2",
-                "message": "show router system, cpu, memory, storage and network",
+                "message": "hello there, how are you?",
             },
         )
     assert response.status_code == 200
@@ -280,7 +279,7 @@ def test_chat_router_aware_unavailable_router_continues() -> None:
     assert "ROUTER CONTEXT" not in sent[0]["content"]
 
 
-def test_chat_stream_router_aware_injects_router_context() -> None:
+def test_chat_stream_auto_detect_injects_router_context() -> None:
     seen: dict = {}
     with _client(
         _manager(seen),
@@ -291,7 +290,6 @@ def test_chat_stream_router_aware_injects_router_context() -> None:
             json={
                 "session_id": "ra4",
                 "message": "show router system, cpu, memory, storage and network",
-                "router_aware": True,
             },
         )
     assert response.status_code == 200

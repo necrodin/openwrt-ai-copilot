@@ -31,14 +31,19 @@ def _chat_service(request: Request) -> ChatService:
     return request.app.state.chat_service
 
 
-def _router_context_markdown(request: Request, message: str) -> str | None:
+def _router_context_markdown(
+    request: Request,
+    message: str,
+    router_aware: bool | None = None,
+) -> str | None:
     """Collect router context markdown for ``message`` via the ChatService.
 
-    The service runs the tool selector against the user's request; best-effort
-    and never raises so a failing tool never fails the chat request.
+    Router intent is auto-detected by default; ``router_aware`` only overrides
+    detection. Best-effort and never raises so a failing tool never fails the
+    chat request.
     """
     try:
-        return _chat_service(request).router_context_markdown(message)
+        return _chat_service(request).router_context_markdown(message, router_aware=router_aware)
     except Exception:
         return None
 
@@ -150,8 +155,10 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
         history=history,
         model=body.model,
         temperature=body.temperature,
-        router_context=(
-            _router_context_markdown(request, body.message) if body.router_aware else None
+        router_context=_router_context_markdown(
+            request,
+            body.message,
+            router_aware=body.router_aware,
         ),
     )
     try:
@@ -265,9 +272,11 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
             history=history,
             model=body.model,
             temperature=body.temperature,
-            router_context=_router_context_markdown(request, body.message)
-            if body.router_aware
-            else None,
+            router_context=_router_context_markdown(
+                request,
+                body.message,
+                router_aware=body.router_aware,
+            ),
         )
         reply_parts = []
         try:

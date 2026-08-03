@@ -11,4 +11,8 @@ class ChatRequestBody(BaseModel):
     provider: str | None = None
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    router_aware: bool = False
+    router_aware: bool | None = Field(
+        default=None,
+        description="Override for router tool execution. Default (null) auto-detects "
+        "router intent from the message; true forces it, false skips it.",
+    )

@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
+from app.services.router_intent_detector import RouterIntentDetector
 from app.services.router_tool import RouterTool
 from app.services.router_tool_executor import RouterToolExecutor
 from app.services.router_tool_registry import RouterToolRegistry
@@ -63,6 +64,7 @@ class ChatService:
         router_tool: RouterTool | None = None,
         registry: RouterToolRegistry | None = None,
         selector: RouterToolSelector | None = None,
+        detector: RouterIntentDetector | None = None,
         executor: RouterToolExecutor | None = None,
     ) -> None:
         self._manager = manager
@@ -72,6 +74,7 @@ class ChatService:
             registry = self._build_registry(router_tool)
         self._registry = registry
         self._selector = selector if selector is not None else RouterToolSelector(registry)
+        self._detector = detector if detector is not None else RouterIntentDetector(self._selector)
         self._executor = executor if executor is not None else RouterToolExecutor(registry)
 
     @staticmethod
@@ -85,15 +88,28 @@ class ChatService:
             registry.register("network", router_tool.get_network_info)
         return registry
 
-    def router_context_markdown(self, message: str) -> str | None:
+    def router_context_markdown(
+        self,
+        message: str,
+        *,
+        router_aware: bool | None = None,
+    ) -> str | None:
         """Collect router context markdown for ``message``.
 
-        The selector turns the message into tool requests; the executor runs them
-        sequentially. When no requests are needed, or execution yields nothing
-        usable, this returns ``None`` and the chat proceeds without the router
-        section.
+        Intent detection is automatic: when the request is not router-related
+        the tool layer is skipped entirely. For router requests, the selector
+        turns the message into tool requests and the executor runs them
+        sequentially. When nothing usable is produced, this returns ``None`` and
+        the chat proceeds without the router section.
+
+        ``router_aware`` overrides detection: ``True`` forces the router layer,
+        ``False`` skips it, and ``None`` (default) auto-detects intent.
         """
         if self._router_tool is None:
+            return None
+        if router_aware is False:
+            return None
+        if router_aware is None and self._detector.classify(message) == "non-router":
             return None
         requests = self._selector.select(message)
         if not requests:
