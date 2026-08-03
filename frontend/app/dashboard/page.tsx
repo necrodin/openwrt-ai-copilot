@@ -26,7 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: ConnectionStatus }) {
-  const map: Record<ConnectionStatus, { label: string; variant: "default" | "secondary" | "destructive" }> = {
+  const map: Record<ConnectionStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
     live: { label: "Live", variant: "default" },
     connecting: { label: "Connecting", variant: "secondary" },
     reconnecting: { label: "Reconnecting", variant: "destructive" },
@@ -64,24 +64,47 @@ function LiveDot({ status }: { status: ConnectionStatus }) {
 export default function DashboardPage() {
   const { update, status } = useDashboardSocket();
   const snapshot = update?.snapshot ?? null;
+  const routerLabel = snapshot
+    ? snapshot.meta.model || snapshot.meta.board || "router"
+    : "router";
+  const hostname = snapshot?.kernel?.hostname ?? null;
+  const firmware = snapshot?.kernel?.version ?? snapshot?.meta?.firmware ?? null;
+  const kernel = snapshot?.kernel?.kernel ?? null;
 
   return (
     <main className="mx-auto w-full max-w-7xl space-y-6 p-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
             Live view of{" "}
-            {snapshot
-              ? `${snapshot.meta.model || snapshot.meta.board || "router"}`
-              : "the router"}
+            <span className="font-medium text-foreground">{routerLabel}</span>
+            {hostname ? ` (${hostname})` : ""}
             {" · "}
             {update ? `last updated ${formatClock(update.sent_at)}` : "waiting for data…"}
           </p>
+          {(hostname || firmware || kernel) ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {hostname ? (
+                <Badge variant="outline" className="text-xs">{hostname}</Badge>
+              ) : null}
+              {firmware ? (
+                <Badge variant="outline" className="text-xs">Firmware: {firmware}</Badge>
+              ) : null}
+              {kernel ? (
+                <Badge variant="outline" className="text-xs">Kernel: {kernel}</Badge>
+              ) : null}
+            </div>
+          ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <LiveDot status={status} />
           <StatusBadge status={status} />
+          {update?.connected !== undefined ? (
+            <Badge variant={update.connected ? "default" : "destructive"}>
+              {update.connected ? "Online" : "Offline"}
+            </Badge>
+          ) : null}
           {update ? (
             <Badge variant="outline">
               {sourceLabel(update.source)}

@@ -6,33 +6,59 @@ and ``close()``. This facade keeps that contract while delegating to the async
 :class:`~router_agent.transport.ssh.client.SSHClient` through a background
 event-loop bridge. It also exposes ``arun()`` and ``health()`` for async callers.
 
-Backwards compatibility: the previous constructor signature
-``SSHTransport(host, *, port, username, password, key_path, connect_timeout,
-command_timeout, banner_timeout)`` still works, and a connect failure still
-raises a :class:`ConnectionFailedError` (here
-:class:`router_agent.transport.ssh.errors.ConnectionError`) at construction time.
+Explicit lifecycle is supported via ``connect()``, ``disconnect()``, and
+``reconnect()``. State is reported through ``connected`` and ``state`` properties.
+
+Backwards compatibility: the previous constructor signature still works, and a
+connect failure raises :class:`ConnectionFailedError` at construction time.
 """
 
 from __future__ import annotations
 
+import logging
+from contextlib import suppress
 from pathlib import Path
 
 from router_agent.errors import ConnectionFailedError
-from router_agent.transport.ssh.backends import SSHBackend
 from router_agent.transport.ssh.bridge import EventLoopBridge
 from router_agent.transport.ssh.client import SSHClient
 from router_agent.transport.ssh.config import SSHConfig, SSHCredentials
-from router_agent.transport.ssh.connection import SSHConnection
+from router_agent.transport.ssh.errors import (
+    AuthenticationError,
+    HostKeyError,
+)
+from router_agent.transport.ssh.errors import (
+    TimeoutError as SSHTimeoutError,
+)
 from router_agent.transport.ssh.health import SSHHealth
 
-__all__ = ["SSHTransport"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["SSHTransport", "ConnectionState"]
+
+
+class ConnectionState:
+    """State constants for the SSH transport connection lifecycle."""
+
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    FAILED = "failed"
 
 
 class SSHTransport:
     """Executes commands on a remote OpenWrt device over SSH.
 
-    Uses an internal :class:`SSHClient` (retries, reconnects, keep-alive) and a
-    shared pool of connections sized by ``pool_size``.
+    Uses an internal :class:`SSHClient` (retries, reconnects, keep-alive).
+
+    Lifecycle::
+
+        transport = SSHTransport("192.168.1.1", username="root")
+        transport.connect()       # explicit connect (optional - constructor does it)
+        transport.run("uptime")
+        transport.disconnect()    # graceful disconnect
+        transport.reconnect()     # reconnect after disconnect
+        transport.close()        # final cleanup (also calls disconnect)
     """
 
     def __init__(
@@ -42,7 +68,7 @@ class SSHTransport:
         port: int = 22,
         username: str = "root",
         password: str | None = None,
-        key_path: Path | None = None,
+        key_path: Path | str | None = None,
         connect_timeout: float = 15.0,
         command_timeout: float = 20.0,
         banner_timeout: float | None = None,  # legacy, folded into connect_timeout
@@ -54,10 +80,11 @@ class SSHTransport:
         host_key_policy: str = "auto",
         private_key: str | None = None,
         private_key_passphrase: str | None = None,
-        backend: str | SSHBackend | None = None,
+        backend: str | None = None,
         bridge: EventLoopBridge | None = None,
+        auto_connect: bool = True,
     ) -> None:
-        config = SSHConfig(
+        self._config = SSHConfig(
             host=host,
             port=port,
             timeout=connect_timeout,
@@ -68,7 +95,7 @@ class SSHTransport:
             retry_delay=retry_delay,
             host_key_policy=host_key_policy,
             known_hosts=Path(known_hosts) if known_hosts else None,
-            backend=backend if isinstance(backend, str) else None,
+            backend=backend,
             credentials=SSHCredentials(
                 username=username,
                 password=password,
@@ -77,30 +104,87 @@ class SSHTransport:
                 private_key_passphrase=private_key_passphrase,
             ),
         )
-        if backend is not None and not isinstance(backend, str):
-            connection = SSHConnection(config, backend=backend)
-            self._client = SSHClient(config, connection=connection)
-        else:
-            self._client = SSHClient(config)
-
+        self._client = SSHClient(self._config)
         self._bridge = bridge if bridge is not None else EventLoopBridge()
         self._owns_bridge = bridge is None
         self._closed = False
+        self._state = ConnectionState.DISCONNECTED
+
+        if auto_connect:
+            try:
+                self.connect()
+            except ConnectionFailedError:
+                self.close()
+                raise
+
+    # -- state -------------------------------------------------------------- #
+
+    @property
+    def connected(self) -> bool:
+        """True when the underlying connection is active."""
+        if self._closed:
+            return False
         try:
-            # Eager connect preserves the previous fail-fast behavior: a device
-            # that cannot be reached raises at construction, not on first run.
-            self._bridge.run(self._client.connect())
-        except ConnectionFailedError:
-            self.close()
-            raise
+            return self._bridge.run(self._client.connection.is_alive())
+        except Exception:
+            return False
+
+    @property
+    def state(self) -> str:
+        """Current connection lifecycle state."""
+        if self._closed:
+            return ConnectionState.DISCONNECTED
+        return self._state
+
+    @property
+    def config(self) -> SSHConfig:
+        return self._config
 
     @property
     def host(self) -> str:
         return self._client.config.host
 
     @property
+    def port(self) -> int:
+        return self._client.config.port
+
+    @property
     def backend(self) -> str:
         return self._client.backend
+
+    # -- lifecycle ---------------------------------------------------------- #
+
+    def connect(self) -> None:
+        """Open the SSH connection (idempotent if already connected)."""
+        if self._closed:
+            raise RuntimeError("Cannot connect: transport is closed.")
+        if self._state == ConnectionState.CONNECTED and self.connected:
+            return
+        self._state = ConnectionState.CONNECTING
+        logger.info("Connecting to %s:%d (backend=%s)", self.host, self.port, self.backend)
+        try:
+            self._bridge.run(self._client.connect())
+        except (AuthenticationError, HostKeyError):
+            self._state = ConnectionState.FAILED
+            raise
+        except (SSHTimeoutError, OSError) as exc:
+            self._state = ConnectionState.FAILED
+            raise ConnectionFailedError(f"connect to {self.host} failed: {exc}") from exc
+        self._state = ConnectionState.CONNECTED
+        logger.info("Connected to %s:%d", self.host, self.port)
+
+    def disconnect(self) -> None:
+        """Gracefully close the SSH session while keeping the bridge alive."""
+        if self._closed:
+            return
+        self._state = ConnectionState.DISCONNECTED
+        with suppress(Exception):
+            self._bridge.run(self._client.close())
+
+    def reconnect(self) -> None:
+        """Disconnect and reconnect in a single call."""
+        self.disconnect()
+        self.connect()
 
     # -- synchronous CommandRunner contract --------------------------------- #
 
@@ -113,9 +197,10 @@ class SSHTransport:
         if self._closed:
             return
         self._closed = True
+        self._state = ConnectionState.DISCONNECTED
         try:
             self._bridge.run(self._client.close())
-        except Exception:  # noqa: BLE001 - closing best effort
+        except Exception:
             pass
         finally:
             if self._owns_bridge:

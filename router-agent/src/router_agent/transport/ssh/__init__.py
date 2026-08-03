@@ -30,7 +30,7 @@ from router_agent.transport.ssh.errors import (
 )
 from router_agent.transport.ssh.health import SSHHealth
 from router_agent.transport.ssh.pool import SSHConnectionPool
-from router_agent.transport.ssh.transport import SSHTransport
+from router_agent.transport.ssh.transport import ConnectionState, SSHTransport
 
 __all__ = [
     "SSHClient",
@@ -40,6 +40,7 @@ __all__ = [
     "SSHCredentials",
     "SSHHealth",
     "SSHTransport",
+    "ConnectionState",
     "SSHBackend",
     "AsyncSSHBackend",
     "ParamikoBackend",
