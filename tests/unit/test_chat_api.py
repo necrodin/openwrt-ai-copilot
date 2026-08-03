@@ -237,6 +237,10 @@ def test_chat_auto_detect_injects_router_context() -> None:
     assert "## Memory" in sent[0]["content"]
     assert "## Storage" in sent[0]["content"]
     assert "## Network Interfaces" in sent[0]["content"]
+    context = response.json()["router_context"]
+    assert context is not None
+    assert "## Router" in context
+    assert "- Hostname: demo-router" in context
     message = "show router system, cpu, memory, storage and network"
     assert sent[-1] == {"role": "user", "content": message}
 
@@ -255,6 +259,7 @@ def test_chat_auto_detect_skips_non_router_context() -> None:
             },
         )
     assert response.status_code == 200
+    assert response.json()["router_context"] is None
     sent = seen["messages"]
     assert "ROUTER CONTEXT" not in sent[0]["content"]
 
@@ -275,6 +280,7 @@ def test_chat_router_aware_unavailable_router_continues() -> None:
         )
     assert response.status_code == 200
     assert response.json()["reply"] == "Hello router"
+    assert response.json()["router_context"] is None
     sent = seen["messages"]
     assert "ROUTER CONTEXT" not in sent[0]["content"]
 
@@ -294,6 +300,7 @@ def test_chat_stream_auto_detect_injects_router_context() -> None:
         )
     assert response.status_code == 200
     assert '"type": "done"' in response.text
+    assert '"router_context"' in response.text
     sent = seen["messages"]
     assert sent[0]["role"] == "system"
     assert "ROUTER CONTEXT" in sent[0]["content"]

@@ -157,18 +157,19 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
             media_type="application/json",
         )
 
+    router_context = _router_context_markdown(
+        request,
+        body.message,
+        router_aware=body.router_aware,
+        session_id=body.session_id,
+        router_id=body.router_id,
+    )
     chat_request = service.compose(
         message=body.message,
         history=history,
         model=body.model,
         temperature=body.temperature,
-        router_context=_router_context_markdown(
-            request,
-            body.message,
-            router_aware=body.router_aware,
-            session_id=body.session_id,
-            router_id=body.router_id,
-        ),
+        router_context=router_context,
     )
     try:
         response = await service.complete(provider, chat_request)
@@ -197,6 +198,7 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
                 "provider": provider.name,
                 "model": response.model,
                 "usage": response.usage.model_dump(),
+                "router_context": router_context,
             },
             ensure_ascii=False,
         ),
@@ -276,18 +278,19 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
             )
             return
 
+        router_context = _router_context_markdown(
+            request,
+            body.message,
+            router_aware=body.router_aware,
+            session_id=body.session_id,
+            router_id=body.router_id,
+        )
         chat_request = service.compose(
             message=body.message,
             history=history,
             model=body.model,
             temperature=body.temperature,
-            router_context=_router_context_markdown(
-                request,
-                body.message,
-                router_aware=body.router_aware,
-                session_id=body.session_id,
-                router_id=body.router_id,
-            ),
+            router_context=router_context,
         )
         reply_parts = []
         try:
@@ -315,6 +318,7 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
                 "provider": provider.name,
                 "model": body.model or provider.config.model or "default",
                 "usage": None,
+                "router_context": router_context,
             }
         )
 

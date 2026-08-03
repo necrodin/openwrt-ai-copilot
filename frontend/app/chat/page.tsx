@@ -378,6 +378,7 @@ export default function ChatPage() {
                   provider={turn.provider}
                   model={turn.model}
                   streaming={turn.streaming}
+                  routerContext={turn.router_context}
                 />
               ))
             )}

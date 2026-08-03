@@ -1,6 +1,7 @@
 "use client";
 
-import { Bot, User } from "lucide-react";
+import { useState } from "react";
+import { Bot, ChevronDown, ChevronRight, User } from "lucide-react";
 
 import { Markdown } from "@/components/chat/markdown";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ type MessageBubbleProps = {
   provider: string | null;
   model: string | null;
   streaming?: boolean;
+  routerContext?: string | null;
 };
 
 function Cursor() {
@@ -23,12 +25,39 @@ function Cursor() {
   );
 }
 
+function RouterContextPanel({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="w-full rounded-xl border bg-card text-card-foreground shadow-xs">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-1 px-4 py-2 text-left text-sm font-medium"
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronDown className="size-4" aria-hidden />
+        ) : (
+          <ChevronRight className="size-4" aria-hidden />
+        )}
+        Router Context
+      </button>
+      {expanded ? (
+        <div className="border-t px-4 py-2.5 text-sm">
+          <Markdown content={content} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function MessageBubble({
   role,
   content,
   provider,
   model,
   streaming = false,
+  routerContext = null,
 }: MessageBubbleProps) {
   const isUser = role === "user";
   return (
@@ -72,6 +101,7 @@ export function MessageBubble({
             {model ? ` · ${model}` : ""}
           </Badge>
         ) : null}
+        {!isUser && routerContext ? <RouterContextPanel content={routerContext} /> : null}
       </div>
       {isUser ? (
         <div className="flex size-8 shrink-0 items-center justify-center rounded-full border bg-primary/10">

@@ -105,6 +105,7 @@ export function useChat() {
         provider: null,
         model: null,
         streaming: true,
+        router_context: null,
       };
       setMessages((prev) => [...prev, userTurn, assistantTurn]);
       setStatus("streaming");
@@ -140,6 +141,7 @@ export function useChat() {
                   provider: event.provider,
                   model: event.model,
                   streaming: false,
+                  router_context: event.router_context ?? null,
                 };
               }
               return next;

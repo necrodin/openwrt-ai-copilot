@@ -9,6 +9,7 @@ export type ChatTurn = {
   provider: string | null;
   model: string | null;
   streaming?: boolean;
+  router_context?: string | null;
 };
 
 export type ChatSessionSummary = {
@@ -23,12 +24,19 @@ export type ChatCompletionResponse = {
   provider: string;
   model: string;
   usage: { prompt_tokens: number; completion_tokens: number } | null;
+  router_context?: string | null;
 };
 
 export type ChatStreamEvent =
   | { type: "session"; session_id: string }
   | { type: "delta"; content: string }
-  | { type: "done"; reply: string; provider: string; model: string }
+  | {
+      type: "done";
+      reply: string;
+      provider: string;
+      model: string;
+      router_context?: string | null;
+    }
   | { type: "error"; message: string };
 
 export type ChatStreamHandlers = {
