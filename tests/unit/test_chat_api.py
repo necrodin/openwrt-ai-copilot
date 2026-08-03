@@ -312,6 +312,73 @@ def test_chat_stream_auto_detect_injects_router_context() -> None:
     assert "### End Router Context" in sent[0]["content"]
 
 
+def _sse_events(text: str) -> list[dict]:
+    return [
+        json.loads(raw.split("data:", 1)[1])
+        for raw in text.split("\n\n")
+        if raw.startswith("data:")
+    ]
+
+
+def test_chat_stream_router_context_emitted_once_on_done() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={
+                "session_id": "ra11",
+                "message": "show router system, cpu, memory, storage and network",
+            },
+        )
+    assert response.status_code == 200
+    assert response.text.count('"router_context"') == 1
+    events = _sse_events(response.text)
+    done = [event for event in events if event["type"] == "done"]
+    deltas = [event for event in events if event["type"] == "delta"]
+    assert len(done) == 1
+    assert done[0]["router_context"] is not None
+    assert "## Router" in done[0]["router_context"]
+    assert all("router_context" not in event for event in deltas)
+
+
+def test_chat_stream_tokens_remain_unchanged() -> None:
+    seen: dict = {}
+    with _client(_manager(seen)) as client:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"session_id": "ra12", "message": "stream"},
+        )
+    assert response.status_code == 200
+    events = _sse_events(response.text)
+    deltas = [event["content"] for event in events if event["type"] == "delta"]
+    assert deltas == ["Hello", " router"]
+    done = [event for event in events if event["type"] == "done"][0]
+    assert done["reply"] == "Hello router"
+
+
+def test_chat_stream_without_router_context_stays_null() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={
+                "session_id": "ra13",
+                "message": "hello there, how are you?",
+            },
+        )
+    assert response.status_code == 200
+    events = _sse_events(response.text)
+    done = [event for event in events if event["type"] == "done"][0]
+    assert done["router_context"] is None
+    assert done["reply"] == "Hello router"
+
+
 def test_chat_router_aware_no_router_intent_skips_tool() -> None:
     seen: dict = {}
     with _client(
