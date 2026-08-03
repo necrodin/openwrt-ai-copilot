@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
 from typing import Protocol
 
 
@@ -18,11 +17,6 @@ class CommandRunner(Protocol):
     def run(self, command: str, *, timeout: float | None = None) -> str: ...
 
     def close(self) -> None: ...
-
-
-def command_tokens(command: str) -> list[str]:
-    """Split a static shell command for display/audit purposes."""
-    return shlex.split(command)
 
 
 def clean_output(output: str) -> str:

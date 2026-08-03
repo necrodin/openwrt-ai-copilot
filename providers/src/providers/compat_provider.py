@@ -17,7 +17,6 @@ from ai.core.models import (
     EmbeddingRequest,
     EmbeddingResponse,
     ModelInfo,
-    TokenUsage,
     Usage,
 )
 from ai.core.protocols import (
@@ -102,9 +101,6 @@ class OpenAICompatibleProvider(BaseProvider):
         self._record(CAPABILITY_EMBEDDINGS, response.usage)
         self._usage.cost_usd += self._cost(response.usage)
         return response
-
-    def token_usage(self) -> TokenUsage:
-        return super().token_usage()
 
 
 __all__ = ["OpenAICompatibleProvider", "estimate_tokens"]

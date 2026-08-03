@@ -10,8 +10,6 @@ from app.core.config import settings
 from providers.config import ProvidersConfig
 from providers.factory import ProviderManager, create_provider_manager
 
-_manager: ProviderManager | None = None
-
 
 def load_provider_manager() -> ProviderManager:
     """Build the provider manager from the configured config file.
@@ -19,11 +17,9 @@ def load_provider_manager() -> ProviderManager:
     A missing config file yields an empty manager (no providers configured);
     startup must not fail just because the file has not been created yet.
     """
-    global _manager
     path = Path(settings.provider_config_file)
     config = ProvidersConfig.from_file(path) if path.exists() else ProvidersConfig(providers={})
-    _manager = create_provider_manager(config)
-    return _manager
+    return create_provider_manager(config)
 
 
 def get_provider_manager(request: Request) -> ProviderManager:

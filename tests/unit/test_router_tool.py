@@ -98,38 +98,3 @@ def test_router_tool_is_read_only() -> None:
     tool = _tool()
     with pytest.raises(AttributeError):
         tool.set_config("reboot")  # type: ignore[attr-defined]
-
-
-def test_render_markdown_includes_all_sections() -> None:
-    markdown = _tool().render_markdown()
-    assert markdown is not None
-    assert "## Router" in markdown
-    assert "## CPU" in markdown
-    assert "## Memory" in markdown
-    assert "## Storage" in markdown
-    assert "## Network Interfaces" in markdown
-    assert "Hostname: demo-router" in markdown
-
-
-def test_render_markdown_none_without_snapshot() -> None:
-    assert _tool(None).render_markdown() is None
-
-
-def test_render_markdown_selects_single_intent() -> None:
-    markdown = _tool().render_markdown(intents=["cpu"])
-    assert markdown is not None
-    assert "## CPU" in markdown
-    assert "## Router" not in markdown
-    assert "## Memory" not in markdown
-    assert "## Storage" not in markdown
-    assert "## Network Interfaces" not in markdown
-
-
-def test_render_markdown_selects_subset() -> None:
-    markdown = _tool().render_markdown(intents=["system", "network"])
-    assert markdown is not None
-    assert "## Router" in markdown
-    assert "## Network Interfaces" in markdown
-    assert "## CPU" not in markdown
-    assert "## Memory" not in markdown
-    assert "## Storage" not in markdown

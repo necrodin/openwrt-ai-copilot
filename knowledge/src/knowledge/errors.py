@@ -26,10 +26,6 @@ class UnsupportedFormatError(KnowledgeParseError):
     """No parser is registered for the requested format."""
 
 
-class KnowledgeChunkingError(KnowledgeError):
-    """A chunk strategy could not split a document."""
-
-
 class KnowledgeExtractionError(KnowledgeError):
     """A metadata extractor failed to produce metadata."""
 
@@ -39,7 +35,6 @@ class KnowledgeIndexError(KnowledgeError):
 
 
 __all__ = [
-    "KnowledgeChunkingError",
     "KnowledgeError",
     "KnowledgeExtractionError",
     "KnowledgeIndexError",

@@ -6,13 +6,6 @@ Pure Python (no numpy) so the SQLite reference backend has zero dependencies.
 from __future__ import annotations
 
 
-def l2_norm(vector: list[float]) -> float:
-    total = 0.0
-    for component in vector:
-        total += component * component
-    return total**0.5
-
-
 def cosine_similarity(left: list[float], right: list[float]) -> float:
     """Cosine similarity in [-1, 1]; 0.0 for empty/zero vectors."""
     if not left or not right or len(left) != len(right):
@@ -29,4 +22,4 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     return dot / ((left_norm * right_norm) ** 0.5)
 
 
-__all__ = ["cosine_similarity", "l2_norm"]
+__all__ = ["cosine_similarity"]

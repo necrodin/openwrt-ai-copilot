@@ -22,7 +22,3 @@ def configure_logging(*, level: str | None = None) -> None:
     )
     logging.getLogger("uvicorn").handlers = logging.getLogger().handlers
     logging.getLogger("uvicorn.access").handlers = logging.getLogger().handlers
-
-
-def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(name)

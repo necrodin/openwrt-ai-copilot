@@ -32,25 +32,10 @@ class ContextLimitError(RetrievalError):
     """
 
 
-class MemoryError(RetrievalError):
-    """Conversation memory operations failed."""
-
-
-class CacheError(RetrievalError):
-    """The context cache failed to read or write an entry."""
-
-
-class ConfigurationError(RetrievalError):
-    """The retrieval configuration is invalid."""
-
-
 __all__ = [
-    "CacheError",
     "CollectionError",
-    "ConfigurationError",
     "ContextLimitError",
     "EmbeddingError",
-    "MemoryError",
     "RetrievalError",
     "RetrieverError",
 ]

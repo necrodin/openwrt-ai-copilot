@@ -11,8 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from router_agent.config import AgentConfig
-
 __all__ = ["HOST_KEY_POLICIES", "SSHCredentials", "SSHConfig"]
 
 HOST_KEY_POLICIES = ("auto", "system", "reject")
@@ -39,10 +37,6 @@ class SSHCredentials:
     @property
     def has_private_key(self) -> bool:
         return self.private_key is not None or self.private_key_path is not None
-
-    @property
-    def authenticate_with_key(self) -> bool:
-        return self.has_private_key
 
 
 @dataclass(frozen=True)
@@ -85,18 +79,3 @@ class SSHConfig:
             raise ValueError(f"host_key_policy must be one of {HOST_KEY_POLICIES}")
         if self.backend is not None and self.backend not in BACKENDS:
             raise ValueError(f"backend must be one of {BACKENDS} or None")
-
-    @classmethod
-    def from_agent_config(cls, config: AgentConfig) -> SSHConfig:
-        """Build an ``SSHConfig`` from the router agent's own settings."""
-        return cls(
-            host=config.host,
-            port=config.port,
-            timeout=config.ssh_timeout,
-            command_timeout=config.command_timeout,
-            credentials=SSHCredentials(
-                username=config.username,
-                password=config.password,
-                private_key_path=config.ssh_key_path,
-            ),
-        )

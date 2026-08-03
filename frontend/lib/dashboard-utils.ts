@@ -86,17 +86,6 @@ export function formatDuration(seconds: number): string {
   return `${minutes}m`;
 }
 
-export function formatTime(iso: string | null | undefined): string {
-  if (!iso) {
-    return "—";
-  }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-  return date.toLocaleTimeString();
-}
-
 export function formatClock(iso: string | null | undefined): string {
   if (!iso) {
     return "—";

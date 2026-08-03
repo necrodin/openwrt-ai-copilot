@@ -143,10 +143,6 @@ class ProvidersConfig(BaseModel):
             raise ValueError("Unsupported config format; use .yaml, .yml or .toml")
         return cls.model_validate(data)
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ProvidersConfig:
-        return cls.model_validate(data)
-
 
 __all__ = [
     "DEFAULT_BASE_URLS",

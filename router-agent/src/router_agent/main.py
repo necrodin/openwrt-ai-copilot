@@ -149,7 +149,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     parser.error("unknown command")
-    return 2
 
 
 if __name__ == "__main__":

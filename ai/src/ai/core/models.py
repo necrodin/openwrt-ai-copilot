@@ -114,6 +114,8 @@ class ContentPart(BaseModel):
 
 
 class ChatMessage(BaseModel):
+    """One message in a chat conversation (text or multimodal content)."""
+
     role: Role
     content: str | list[ContentPart] = ""
     name: str | None = None
@@ -122,6 +124,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    """A chat completion request. Empty ``model`` uses the provider default."""
+
     model: str = ""
     messages: list[ChatMessage]
     temperature: float | None = None
@@ -131,24 +135,32 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    """A complete, non-streamed chat reply with usage."""
+
     model: str
     message: ChatMessage
     usage: Usage = Field(default_factory=Usage)
 
 
 class ChatChunk(BaseModel):
+    """One streaming delta of a chat reply."""
+
     model: str
     delta: str
     finish_reason: str | None = None
 
 
 class ModelInfo(BaseModel):
+    """A model served by a provider with its declared capabilities."""
+
     id: str
     capabilities: set[str] = Field(default_factory=set)
     context_window: int | None = None
 
 
 class EmbeddingRequest(BaseModel):
+    """An embedding request for one or more input texts."""
+
     model: str = ""
     inputs: list[str]
     dimensions: int | None = None
@@ -160,16 +172,22 @@ class EmbeddingRequest(BaseModel):
 
 
 class EmbeddingVector(BaseModel):
+    """A single embedded vector."""
+
     embedding: list[float]
 
 
 class EmbeddingResponse(BaseModel):
+    """The embedded vectors for a request, with usage."""
+
     model: str
     embeddings: list[EmbeddingVector]
     usage: Usage = Field(default_factory=Usage)
 
 
 class VisionRequest(BaseModel):
+    """A multimodal (text + image) vision request."""
+
     model: str = ""
     prompt: str
     images: list[ContentPart] = Field(default_factory=list)
@@ -177,12 +195,16 @@ class VisionRequest(BaseModel):
 
 
 class VisionResponse(BaseModel):
+    """The textual answer produced from a vision request."""
+
     model: str
     text: str
     usage: Usage = Field(default_factory=Usage)
 
 
 class RerankRequest(BaseModel):
+    """A re-ranking request: score ``documents`` against ``query``."""
+
     model: str = ""
     query: str
     documents: list[str]
@@ -190,12 +212,16 @@ class RerankRequest(BaseModel):
 
 
 class RerankResult(BaseModel):
+    """One re-ranked document, referenced by its original index."""
+
     index: int
     document: str
     score: float
 
 
 class RerankResponse(BaseModel):
+    """The re-ranked results for a request, in score order, with usage."""
+
     model: str
     results: list[RerankResult]
     usage: Usage = Field(default_factory=Usage)

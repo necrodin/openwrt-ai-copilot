@@ -34,12 +34,9 @@ from rag.config import (
 from rag.context import DefaultContextBuilder
 from rag.engine import RetrievalEngine
 from rag.errors import (
-    CacheError,
     CollectionError,
-    ConfigurationError,
     ContextLimitError,
     EmbeddingError,
-    MemoryError,
     RetrievalError,
     RetrieverError,
 )
@@ -71,11 +68,9 @@ __version__ = "0.5.0-alpha"
 
 __all__ = [
     "CacheConfig",
-    "CacheError",
     "Citation",
     "CollectionError",
     "CollectionRef",
-    "ConfigurationError",
     "ContextConfig",
     "ContextLimitError",
     "ConversationManager",
@@ -90,7 +85,6 @@ __all__ = [
     "InMemoryContextCache",
     "InMemoryMemoryStore",
     "MemoryConfig",
-    "MemoryError",
     "MemorySnapshot",
     "Message",
     "PromptContext",

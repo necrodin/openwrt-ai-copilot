@@ -18,15 +18,6 @@ export type ChatSessionSummary = {
   message_count: number;
 };
 
-export type ChatCompletionResponse = {
-  session_id: string;
-  reply: string;
-  provider: string;
-  model: string;
-  usage: { prompt_tokens: number; completion_tokens: number } | null;
-  router_context?: string | null;
-};
-
 export type ChatStreamEvent =
   | { type: "session"; session_id: string }
   | { type: "delta"; content: string }
@@ -67,25 +58,6 @@ async function jsonOrThrow(res: Response): Promise<unknown> {
     throw new Error(detail);
   }
   return res.json();
-}
-
-/** POST a message and receive the full (non-streaming) reply. */
-export async function sendChatMessage(
-  options: ChatRequestOptions,
-  signal?: AbortSignal,
-): Promise<ChatCompletionResponse> {
-  const res = await fetch(`${API_BASE_URL}/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      session_id: options.session_id,
-      message: options.message,
-      provider: options.provider ?? null,
-      model: options.model ?? null,
-    }),
-    signal,
-  });
-  return (await jsonOrThrow(res)) as ChatCompletionResponse;
 }
 
 /**

@@ -143,10 +143,6 @@ class VectorStoreFactory:
         await asyncio.gather(*(close(store) for store in self._stores.values()))
 
 
-def create_store_factory(config: VectorStoresConfig) -> VectorStoreFactory:
-    return VectorStoreFactory(config)
-
-
 # Register built-in store types once at import time.
 _register_defaults()
 
@@ -155,7 +151,6 @@ __all__ = [
     "VectorStoreFactory",
     "available_store_types",
     "create_store",
-    "create_store_factory",
     "register_store",
     "unregister_store",
 ]

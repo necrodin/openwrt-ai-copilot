@@ -6,6 +6,6 @@ than reaching into `ai.core` directly. The contract itself lives in
 """
 
 from ai.core.models import VisionRequest, VisionResponse
-from ai.core.protocols import Visioner
+from ai.core.protocols import VisionProvider
 
-__all__ = ["Visioner", "VisionRequest", "VisionResponse"]
+__all__ = ["VisionProvider", "VisionRequest", "VisionResponse"]

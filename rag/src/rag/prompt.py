@@ -170,14 +170,6 @@ class DefaultPromptOptimizer(PromptOptimizer):
             context.history = context.history[1:]
 
 
-class DocumentRef:
-    """Minimal grouping helper used while trimming chunks (bypasses retrieval deps)."""
-
-    def __init__(self, document_id: str) -> None:
-        self.document_id = document_id
-        self.chunks: list = []
-
-
 __all__ = [
     "DefaultPromptBuilder",
     "DefaultPromptOptimizer",

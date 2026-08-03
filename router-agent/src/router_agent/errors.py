@@ -24,7 +24,3 @@ class UbusError(RouterAgentError):
 
 class LuciRpcError(RouterAgentError):
     """A LuCI JSON-RPC call failed."""
-
-
-class CollectorError(RouterAgentError):
-    """A collector failed while gathering its section."""

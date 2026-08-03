@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 #: Default chunk strategy, applied when a collection does not override it.
 DEFAULT_CHUNK_STRATEGY = "fixed"
 DEFAULT_CHUNK_SIZE = 500
-DEFAULT_OVERLAP = 100
 
 #: Supported chunk strategy names (matches ChunkStrategy.strategy_type).
 SUPPORTED_CHUNK_STRATEGIES = frozenset({"fixed", "sliding", "heading", "paragraph"})
@@ -119,7 +118,6 @@ __all__ = [
     "ChunkingConfig",
     "DEFAULT_CHUNK_SIZE",
     "DEFAULT_CHUNK_STRATEGY",
-    "DEFAULT_OVERLAP",
     "KnowledgeCollectionConfig",
     "KnowledgePlatformConfig",
     "SUPPORTED_CHUNK_STRATEGIES",

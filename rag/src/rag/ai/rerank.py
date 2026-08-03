@@ -11,9 +11,15 @@ The bridge keeps the original vector-store similarity alongside the rerank score
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rag.models import RetrievedChunk
 from rag.protocols import Reranker
 from rag.reranker import DummyReranker
+
+if TYPE_CHECKING:
+    from providers.factory import ProviderManager
+    from rag.config import RetrievalConfig
 
 #: Metadata key carrying the pre-rerank similarity (set only when reranked).
 _SIMILARITY_KEY = "similarity_score"
@@ -95,8 +101,8 @@ class ProviderReranker(Reranker):
 
 
 def build_reranker(
-    manager,
-    configuration,
+    manager: ProviderManager,
+    configuration: RetrievalConfig,
 ) -> Reranker:
     """Build the reranker for a provider manager + RAG configuration.
 

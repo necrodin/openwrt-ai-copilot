@@ -47,6 +47,7 @@ def _summary(provider: BaseProvider) -> dict:
 def list_providers(
     manager: Manager,
 ) -> dict:
+    """List configured providers with their static capability summary."""
     providers = [_summary(p) for p in manager.all()]
     return {
         "service": settings.app_name,
@@ -59,6 +60,7 @@ def list_providers(
 def provider_detail(
     provider: Provider,
 ) -> dict:
+    """Return the summary for a single configured provider."""
     return _summary(provider)
 
 
@@ -66,6 +68,7 @@ def provider_detail(
 async def provider_health(
     provider: Provider,
 ) -> dict:
+    """Probe a single provider and report whether it is reachable."""
     return {"name": provider.name, "healthy": await provider.health()}
 
 
@@ -73,6 +76,7 @@ async def provider_health(
 async def provider_capabilities(
     provider: Provider,
 ) -> dict:
+    """Return the detected capabilities for a single provider."""
     caps = await provider.capabilities()
     return {
         "name": provider.name,
@@ -86,6 +90,7 @@ async def provider_capabilities(
 def provider_usage(
     provider: Provider,
 ) -> dict:
+    """Return the cumulative token-usage counters for a provider."""
     return {"name": provider.name, "usage": provider.token_usage().model_dump()}
 
 
@@ -93,6 +98,7 @@ def provider_usage(
 async def provider_models(
     provider: Provider,
 ) -> dict:
+    """List the models a provider serves (502 when the upstream is unreachable)."""
     try:
         models = await provider.list_models()
     except Exception as exc:  # noqa: BLE001 - surfaced as a clean 502

@@ -41,12 +41,6 @@ class KnowledgeMetadata(BaseModel):
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
 
-    def keys(self) -> set[str]:
-        return self.values.keys()
-
-    def items(self) -> set[tuple[str, Any]]:
-        return self.values.items()
-
     def __len__(self) -> int:
         return len(self.values)
 

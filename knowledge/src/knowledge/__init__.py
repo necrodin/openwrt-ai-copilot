@@ -20,7 +20,6 @@ from knowledge.config import (
     KnowledgePlatformConfig,
 )
 from knowledge.errors import (
-    KnowledgeChunkingError,
     KnowledgeError,
     KnowledgeExtractionError,
     KnowledgeIndexError,
@@ -46,7 +45,6 @@ __all__ = [
     "ChunkingConfig",
     "IndexResult",
     "KnowledgeChunk",
-    "KnowledgeChunkingError",
     "KnowledgeCollection",
     "KnowledgeCollectionConfig",
     "KnowledgeDocument",
