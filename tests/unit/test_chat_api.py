@@ -352,6 +352,44 @@ def test_chat_router_aware_executes_through_executor() -> None:
     assert "ROUTER CONTEXT" in sent[0]["content"]
 
 
+def test_chat_router_aware_reuses_cached_results() -> None:
+    seen: dict = {}
+    calls: list[str] = []
+
+    class CountingExecutor:
+        def execute(self, requests: list[str]):
+            calls.extend(requests)
+            return [
+                RouterToolResult(name=name, ok=True, result={"hostname": "demo-router"})
+                for name in requests
+            ]
+
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        service = client.app.state.chat_service
+        service._executor = CountingExecutor()  # noqa: SLF001
+        client.post(
+            "/api/v1/chat",
+            json={
+                "session_id": "ra7",
+                "message": "show router system",
+                "router_aware": True,
+            },
+        )
+        client.post(
+            "/api/v1/chat",
+            json={
+                "session_id": "ra7",
+                "message": "show router hostname",
+                "router_aware": True,
+            },
+        )
+    assert calls == ["system"]
+    assert service._cache.stats()["hits"] >= 1  # noqa: SLF001
+
+
 def test_compose_accepts_router_context() -> None:
     service = ChatService(ProviderManager({}), lambda: SNAPSHOT)
     request = service.compose(

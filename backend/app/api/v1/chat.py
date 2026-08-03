@@ -35,6 +35,7 @@ def _router_context_markdown(
     request: Request,
     message: str,
     router_aware: bool | None = None,
+    session_id: str | None = None,
 ) -> str | None:
     """Collect router context markdown for ``message`` via the ChatService.
 
@@ -43,7 +44,9 @@ def _router_context_markdown(
     chat request.
     """
     try:
-        return _chat_service(request).router_context_markdown(message, router_aware=router_aware)
+        return _chat_service(request).router_context_markdown(
+            message, router_aware=router_aware, session_id=session_id
+        )
     except Exception:
         return None
 
@@ -159,6 +162,7 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
             request,
             body.message,
             router_aware=body.router_aware,
+            session_id=body.session_id,
         ),
     )
     try:
@@ -276,6 +280,7 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
                 request,
                 body.message,
                 router_aware=body.router_aware,
+                session_id=body.session_id,
             ),
         )
         reply_parts = []

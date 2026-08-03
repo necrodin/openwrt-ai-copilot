@@ -16,9 +16,10 @@ from collections.abc import Callable
 
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
+from app.services.router_context_cache import RouterContextCache
 from app.services.router_intent_detector import RouterIntentDetector
 from app.services.router_tool import RouterTool
-from app.services.router_tool_executor import RouterToolExecutor
+from app.services.router_tool_executor import RouterToolExecutor, RouterToolResult
 from app.services.router_tool_registry import RouterToolRegistry
 from app.services.router_tool_selector import RouterToolSelector
 from providers.base import BaseProvider
@@ -66,6 +67,7 @@ class ChatService:
         selector: RouterToolSelector | None = None,
         detector: RouterIntentDetector | None = None,
         executor: RouterToolExecutor | None = None,
+        cache: RouterContextCache | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
@@ -76,6 +78,7 @@ class ChatService:
         self._selector = selector if selector is not None else RouterToolSelector(registry)
         self._detector = detector if detector is not None else RouterIntentDetector(self._selector)
         self._executor = executor if executor is not None else RouterToolExecutor(registry)
+        self._cache = cache if cache is not None else RouterContextCache()
 
     @staticmethod
     def _build_registry(router_tool: RouterTool | None) -> RouterToolRegistry:
@@ -93,17 +96,20 @@ class ChatService:
         message: str,
         *,
         router_aware: bool | None = None,
+        session_id: str | None = None,
     ) -> str | None:
         """Collect router context markdown for ``message``.
 
         Intent detection is automatic: when the request is not router-related
         the tool layer is skipped entirely. For router requests, the selector
         turns the message into tool requests and the executor runs them
-        sequentially. When nothing usable is produced, this returns ``None`` and
-        the chat proceeds without the router section.
+        sequentially, consulting the per-session context cache first. When
+        nothing usable is produced, this returns ``None`` and the chat proceeds
+        without the router section.
 
         ``router_aware`` overrides detection: ``True`` forces the router layer,
         ``False`` skips it, and ``None`` (default) auto-detects intent.
+        ``session_id`` scopes cached results to the conversation.
         """
         if self._router_tool is None:
             return None
@@ -115,7 +121,7 @@ class ChatService:
         if not requests:
             return None
         try:
-            results = self._executor.execute(requests)
+            results = self._collect_results(session_id, requests)
         except Exception:
             return None
         if not any(result.ok for result in results):
@@ -124,6 +130,31 @@ class ChatService:
             return self._router_tool.render_markdown(intents=requests)
         except Exception:
             return None
+
+    def _collect_results(
+        self,
+        session_id: str | None,
+        requests: list[str],
+    ) -> list[RouterToolResult]:
+        """Return results for ``requests``, reusing valid cached entries.
+
+        Cached entries are reused in place; only uncached (or expired) tools are
+        executed. Successful executions are stored back into the cache; failed
+        executions are never cached. Result order matches ``requests``.
+        """
+        cached: dict[str, RouterToolResult] = {}
+        pending: list[str] = []
+        for name in requests:
+            result = self._cache.get(session_id or "", name)
+            if result is not None:
+                cached[name] = result
+            else:
+                pending.append(name)
+        if pending:
+            for result in self._executor.execute(pending):
+                self._cache.set(session_id or "", result.name, result)
+                cached[result.name] = result
+        return [cached[name] for name in requests]
 
     def provider_for(self, preferred: str | None = None) -> BaseProvider:
         """Pick a chat-capable provider (never instantiate adapters directly)."""
