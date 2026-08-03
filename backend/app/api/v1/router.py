@@ -3,17 +3,17 @@
 ``GET /router/info`` returns structured information about the connected router
 (hostname, model, firmware, kernel, uptime, CPU, memory, filesystem, network).
 
-``GET /router/status`` returns a lightweight connection state summary (online,
-source, device id, last snapshot time).
-
 ``GET /router/context`` returns a structured AI context document built from the
 latest router snapshot (markdown summary + structured sections for use by the
 chat pipeline).
+
+The live connection summary lives in ``router_status.py`` (``GET /router/status``),
+which preserves the connection-state fields and adds the derived snapshot,
+diagnosis, and recommendations.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -98,23 +98,6 @@ def router_info(request: Request) -> dict:
         "device_id": update.device_id if update else "",
         "last_updated": update.sent_at.isoformat() if update and update.sent_at else None,
         "data": data,
-    }
-
-
-@router.get("/router/status")
-def router_status(request: Request) -> dict:
-    """Lightweight connection status summary."""
-    service: SnapshotService = request.app.state.snapshot_service
-    latest = service.latest()
-    now = datetime.now()
-    return {
-        "connected": latest.connected if latest else False,
-        "source": latest.source if latest else service.source,
-        "device_id": latest.device_id if latest else "",
-        "last_snapshot_at": latest.sent_at.isoformat() if latest and latest.sent_at else None,
-        "sequence": latest.sequence if latest else 0,
-        "error": latest.error if latest and latest.error else None,
-        "server_time": now.isoformat(),
     }
 
 

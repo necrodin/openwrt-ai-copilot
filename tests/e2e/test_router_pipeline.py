@@ -600,6 +600,9 @@ def test_status_endpoint_healthy_router_full_pipeline() -> None:
     assert body["snapshot"]["system"]["hostname"] == "demo-router"
     assert body["diagnosis"] == []
     assert body["recommendations"] == []
+    assert body["connected"] is True
+    assert body["sequence"] == 1
+    assert body["error"] is None
 
 
 def test_status_endpoint_high_cpu_reports_diagnosis_and_recommendation() -> None:
@@ -617,11 +620,14 @@ def test_status_endpoint_unavailable_without_router() -> None:
     with _status_client(None) as client:
         response = client.get("/api/v1/router/status")
     assert response.status_code == 200
-    assert response.json() == {
-        "snapshot": None,
-        "diagnosis": [],
-        "recommendations": [],
-    }
+    body = response.json()
+    assert body["snapshot"] is None
+    assert body["diagnosis"] == []
+    assert body["recommendations"] == []
+    assert body["connected"] is False
+    assert body["last_snapshot_at"] is None
+    assert body["sequence"] == 0
+    assert body["server_time"] is not None
 
 
 # --------------------------------------------------------------------------- #
