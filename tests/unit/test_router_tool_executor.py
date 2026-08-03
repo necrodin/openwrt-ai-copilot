@@ -55,6 +55,32 @@ def test_execute_never_raises_for_unknown_tool() -> None:
     assert results[0].error is not None
 
 
+def test_execute_blocks_write_actions_even_when_registered() -> None:
+    registry = _registry()
+
+    def write() -> dict:
+        raise AssertionError("write action must not be executed")
+
+    registry.register("reboot", write)
+    results = RouterToolExecutor(registry).execute(["reboot"])
+    assert results[0].ok is False
+    assert results[0].error is not None
+    assert results[0].result["decision"] == "require_confirmation"
+
+
+def test_execute_denies_dangerous_actions() -> None:
+    registry = _registry()
+
+    def wipe() -> dict:
+        raise AssertionError("dangerous action must not be executed")
+
+    registry.register("factory reset", wipe)
+    results = RouterToolExecutor(registry).execute(["factory reset"])
+    assert results[0].ok is False
+    assert results[0].result["decision"] == "deny"
+    assert results[0].result["risk"] == "critical"
+
+
 def test_execute_returns_structured_results() -> None:
     results = RouterToolExecutor(_registry()).execute(["system", "nope"])
     assert all(isinstance(r, RouterToolResult) for r in results)
