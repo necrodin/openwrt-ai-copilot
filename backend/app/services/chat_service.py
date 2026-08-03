@@ -17,6 +17,7 @@ from collections.abc import Callable
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
 from app.services.router_context_cache import RouterContextCache
+from app.services.router_diagnosis import RouterDiagnosisEngine
 from app.services.router_intent_detector import RouterIntentDetector
 from app.services.router_manager import RegisteredRouter, RouterManager, UnknownRouterError
 from app.services.router_snapshot import RouterSnapshotService
@@ -72,11 +73,15 @@ class ChatService:
         cache: RouterContextCache | None = None,
         snapshot_service: RouterSnapshotService | None = None,
         router_manager: RouterManager | None = None,
+        diagnosis_engine: RouterDiagnosisEngine | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
         self._router_tool = router_tool
         self._router_manager = router_manager
+        self._diagnosis_engine = (
+            diagnosis_engine if diagnosis_engine is not None else RouterDiagnosisEngine()
+        )
         if router_manager is None:
             if registry is None:
                 registry = self._build_registry(router_tool)
@@ -175,7 +180,14 @@ class ChatService:
         except Exception:
             return None
         try:
-            return router.snapshot_service.render_markdown(snapshot, intents=requests)
+            markdown = router.snapshot_service.render_markdown(snapshot, intents=requests)
+            if markdown is None:
+                return None
+            diagnosis = self._diagnosis_engine.diagnose(snapshot, router_id=router.router_id)
+            diagnosis_markdown = diagnosis.render_markdown()
+            if diagnosis_markdown is not None:
+                markdown = f"{markdown}\n\n{diagnosis_markdown}"
+            return markdown
         except Exception:
             return None
 
