@@ -19,6 +19,7 @@ from app.main import create_app
 from app.schemas.dashboard import DashboardUpdate
 from app.services.chat_service import ChatService
 from app.services.demo_source import build_simulated_snapshot
+from app.services.router_tool import RouterTool
 from providers.factory import ProviderManager
 from providers.openai import OpenAIProvider
 from tests.unit.providers_helpers import make_provider
@@ -92,9 +93,15 @@ def _client(
 ) -> TestClient:
     app = create_app()
     with TestClient(app) as client:
-        app.state.chat_service = ChatService(manager, lambda: snapshot)
+        service = ChatService(manager, lambda: snapshot)
         if snapshot_service is not None:
+            service = ChatService(
+                manager,
+                lambda: snapshot,
+                router_tool=RouterTool(snapshot_service.latest),
+            )
             app.state.snapshot_service = snapshot_service
+        app.state.chat_service = service
         yield client
 
 
@@ -212,7 +219,11 @@ def test_chat_router_aware_injects_router_context() -> None:
     ) as client:
         response = client.post(
             "/api/v1/chat",
-            json={"session_id": "ra1", "message": "status", "router_aware": True},
+            json={
+                "session_id": "ra1",
+                "message": "show router system, cpu, memory, storage and network",
+                "router_aware": True,
+            },
         )
     assert response.status_code == 200
     assert response.json()["reply"] == "Hello router"
@@ -226,7 +237,8 @@ def test_chat_router_aware_injects_router_context() -> None:
     assert "## Memory" in sent[0]["content"]
     assert "## Storage" in sent[0]["content"]
     assert "## Network Interfaces" in sent[0]["content"]
-    assert sent[-1] == {"role": "user", "content": "status"}
+    message = "show router system, cpu, memory, storage and network"
+    assert sent[-1] == {"role": "user", "content": message}
 
 
 def test_chat_not_router_aware_no_router_context() -> None:
@@ -235,7 +247,13 @@ def test_chat_not_router_aware_no_router_context() -> None:
         _manager(seen),
         snapshot_service=FakeSnapshotService(_router_update()),
     ) as client:
-        response = client.post("/api/v1/chat", json={"session_id": "ra2", "message": "status"})
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "session_id": "ra2",
+                "message": "show router system, cpu, memory, storage and network",
+            },
+        )
     assert response.status_code == 200
     sent = seen["messages"]
     assert "ROUTER CONTEXT" not in sent[0]["content"]
@@ -249,7 +267,11 @@ def test_chat_router_aware_unavailable_router_continues() -> None:
     ) as client:
         response = client.post(
             "/api/v1/chat",
-            json={"session_id": "ra3", "message": "status", "router_aware": True},
+            json={
+                "session_id": "ra3",
+                "message": "show router cpu usage",
+                "router_aware": True,
+            },
         )
     assert response.status_code == 200
     assert response.json()["reply"] == "Hello router"
@@ -265,13 +287,37 @@ def test_chat_stream_router_aware_injects_router_context() -> None:
     ) as client:
         response = client.post(
             "/api/v1/chat/stream",
-            json={"session_id": "ra4", "message": "status", "router_aware": True},
+            json={
+                "session_id": "ra4",
+                "message": "show router system, cpu, memory, storage and network",
+                "router_aware": True,
+            },
         )
     assert response.status_code == 200
     assert '"type": "done"' in response.text
     sent = seen["messages"]
     assert sent[0]["role"] == "system"
     assert "ROUTER CONTEXT" in sent[0]["content"]
+
+
+def test_chat_router_aware_no_router_intent_skips_tool() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={
+                "session_id": "ra5",
+                "message": "hello there",
+                "router_aware": True,
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Hello router"
+    sent = seen["messages"]
+    assert "ROUTER CONTEXT" not in sent[0]["content"]
 
 
 def test_compose_accepts_router_context() -> None:

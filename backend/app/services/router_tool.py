@@ -60,53 +60,61 @@ class RouterTool:
     # Rendering                                                          #
     # ------------------------------------------------------------------ #
 
-    def render_markdown(self) -> str | None:
+    def render_markdown(self, intents: list[str] | None = None) -> str | None:
         """Render the collected tool data as structured markdown.
 
-        Returns ``None`` when no router snapshot is available so callers can
-        continue without the router section.
+        ``intents`` limits the rendered sections to the requested tool intents
+        (``system``, ``cpu``, ``memory``, ``storage``, ``network``); when omitted
+        all sections are rendered. Returns ``None`` when no router snapshot is
+        available so callers can continue without the router section.
         """
         if not self.available:
             return None
+        selected = set(intents) if intents else {"system", "cpu", "memory", "storage", "network"}
         system = self.get_system_info()
         cpu = self.get_cpu_info()
         memory = self.get_memory_info()
         storage = self.get_storage_info()
         network = self.get_network_info()
 
-        lines = [
-            "## Router",
-            f"- Hostname: {system.get('hostname', 'unknown')}",
-            f"- Model: {system.get('model', 'unknown')} ({system.get('board', 'unknown')})",
-            f"- Firmware: {system.get('firmware', 'unknown')}",
-            f"- Kernel: {system.get('kernel', 'unknown')} "
-            f"({system.get('architecture', 'unknown')})",
-        ]
-        uptime = system.get("uptime")
-        if uptime:
-            lines.append(f"- Uptime: {uptime}")
-        lines.append("")
+        lines: list[str] = []
+        if "system" in selected:
+            lines += [
+                "## Router",
+                f"- Hostname: {system.get('hostname', 'unknown')}",
+                f"- Model: {system.get('model', 'unknown')} ({system.get('board', 'unknown')})",
+                f"- Firmware: {system.get('firmware', 'unknown')}",
+                f"- Kernel: {system.get('kernel', 'unknown')} "
+                f"({system.get('architecture', 'unknown')})",
+            ]
+            uptime = system.get("uptime")
+            if uptime:
+                lines.append(f"- Uptime: {uptime}")
+            lines.append("")
 
-        lines.append("## CPU")
-        usage = cpu.get("usage_percent")
-        usage_text = f"{usage:.1f}%" if isinstance(usage, (int, float)) else "N/A"
-        lines.append(f"- Usage: {usage_text} ({cpu.get('cores', 0)} cores)")
-        lines.append(
-            "- Load: "
-            f"{cpu.get('load_1', 0):.2f} / {cpu.get('load_5', 0):.2f} / {cpu.get('load_15', 0):.2f}"
-        )
-        lines.append("")
+        if "cpu" in selected:
+            lines.append("## CPU")
+            usage = cpu.get("usage_percent")
+            usage_text = f"{usage:.1f}%" if isinstance(usage, (int, float)) else "N/A"
+            lines.append(f"- Usage: {usage_text} ({cpu.get('cores', 0)} cores)")
+            lines.append(
+                "- Load: "
+                f"{cpu.get('load_1', 0):.2f} / {cpu.get('load_5', 0):.2f} / "
+                f"{cpu.get('load_15', 0):.2f}"
+            )
+            lines.append("")
 
-        lines.append("## Memory")
-        used = memory.get("used_kb")
-        total = memory.get("total_kb")
-        lines.append(
-            f"- RAM: {_format_kb(used)} / {_format_kb(total)} "
-            f"({memory.get('used_percent', 0):.1f}%)"
-        )
-        lines.append("")
+        if "memory" in selected:
+            lines.append("## Memory")
+            used = memory.get("used_kb")
+            total = memory.get("total_kb")
+            lines.append(
+                f"- RAM: {_format_kb(used)} / {_format_kb(total)} "
+                f"({memory.get('used_percent', 0):.1f}%)"
+            )
+            lines.append("")
 
-        if storage:
+        if "storage" in selected and storage:
             lines.append("## Storage")
             for mount in storage:
                 used_gb = f"{mount.get('used_gb') or 0:.1f}G"
@@ -117,7 +125,7 @@ class RouterTool:
                 )
             lines.append("")
 
-        if network:
+        if "network" in selected and network:
             lines.append("## Network Interfaces")
             for iface in network:
                 status = "UP" if iface.get("up") else "DOWN"

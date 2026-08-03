@@ -23,7 +23,6 @@ from app.db.chat_store import ChatStore
 from app.schemas.chat import ChatRequestBody
 from app.services.chat_service import ChatService, NoChatProviderError
 from app.services.rag_service import RAGService
-from app.services.router_tool import RouterTool
 
 router = APIRouter(tags=["chat"])
 
@@ -32,17 +31,14 @@ def _chat_service(request: Request) -> ChatService:
     return request.app.state.chat_service
 
 
-def _router_context_markdown(request: Request) -> str | None:
-    """Collect the current router state as markdown via the Router Tool.
+def _router_context_markdown(request: Request, message: str) -> str | None:
+    """Collect router context markdown for ``message`` via the ChatService.
 
-    Best-effort and never raises: if the snapshot service or the tool fails, the
-    conversation continues without the router section.
+    The service runs the tool selector against the user's request; best-effort
+    and never raises so a failing tool never fails the chat request.
     """
-    service = getattr(request.app.state, "snapshot_service", None)
-    if service is None:
-        return None
     try:
-        return RouterTool(service.latest).render_markdown()
+        return _chat_service(request).router_context_markdown(message)
     except Exception:
         return None
 
@@ -154,7 +150,9 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
         history=history,
         model=body.model,
         temperature=body.temperature,
-        router_context=_router_context_markdown(request) if body.router_aware else None,
+        router_context=(
+            _router_context_markdown(request, body.message) if body.router_aware else None
+        ),
     )
     try:
         response = await service.complete(provider, chat_request)
@@ -267,7 +265,9 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
             history=history,
             model=body.model,
             temperature=body.temperature,
-            router_context=_router_context_markdown(request) if body.router_aware else None,
+            router_context=_router_context_markdown(request, body.message)
+            if body.router_aware
+            else None,
         )
         reply_parts = []
         try:

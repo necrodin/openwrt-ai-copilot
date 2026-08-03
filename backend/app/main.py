@@ -18,6 +18,7 @@ from app.db.chat_store import store as chat_store
 from app.services.chat_service import ChatService
 from app.services.provider_manager import load_provider_manager
 from app.services.rag_service import load_rag_service
+from app.services.router_tool import RouterTool
 from app.services.snapshot_service import SnapshotService
 from database.session import init_db
 
@@ -36,6 +37,7 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         snapshot=lambda: (
             snapshot_service.latest().snapshot if snapshot_service.latest() is not None else None
         ),
+        router_tool=RouterTool(snapshot_service.latest),
     )
     # RAG chat is opt-in: ``rag.yaml`` present -> grounded, cited chat is
     # enabled; missing/unparseable -> existing router-state chat stays active.

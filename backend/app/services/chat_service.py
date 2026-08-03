@@ -16,6 +16,8 @@ from collections.abc import Callable
 
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
+from app.services.router_tool import RouterTool
+from app.services.router_tool_selector import RouterToolSelector
 from providers.base import BaseProvider
 from providers.factory import ProviderManager
 from router_agent.model import DeviceSnapshot
@@ -55,9 +57,31 @@ class ChatService:
         self,
         manager: ProviderManager,
         snapshot: Callable[[], DeviceSnapshot | None],
+        *,
+        router_tool: RouterTool | None = None,
+        selector: RouterToolSelector | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
+        self._router_tool = router_tool
+        self._selector = selector if selector is not None else RouterToolSelector()
+
+    def router_context_markdown(self, message: str) -> str | None:
+        """Collect router context markdown for ``message`` via the tool selector.
+
+        The selector picks which Router Tool(s) the request needs; when none are
+        required (or the router is unavailable) this returns ``None`` and no tool
+        execution happens.
+        """
+        if self._router_tool is None:
+            return None
+        intents = self._selector.select(message)
+        if not intents:
+            return None
+        try:
+            return self._router_tool.render_markdown(intents=intents)
+        except Exception:
+            return None
 
     def provider_for(self, preferred: str | None = None) -> BaseProvider:
         """Pick a chat-capable provider (never instantiate adapters directly)."""
