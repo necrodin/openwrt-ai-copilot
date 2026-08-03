@@ -11,6 +11,10 @@ class ChatRequestBody(BaseModel):
     provider: str | None = None
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    router_id: str | None = Field(
+        default=None,
+        description="Router to use for router context (default router when omitted).",
+    )
     router_aware: bool | None = Field(
         default=None,
         description="Override for router tool execution. Default (null) auto-detects "

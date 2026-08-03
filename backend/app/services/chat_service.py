@@ -18,6 +18,7 @@ from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
 from app.services.router_context_cache import RouterContextCache
 from app.services.router_intent_detector import RouterIntentDetector
+from app.services.router_manager import RegisteredRouter, RouterManager, UnknownRouterError
 from app.services.router_snapshot import RouterSnapshotService
 from app.services.router_tool import RouterTool
 from app.services.router_tool_executor import RouterToolExecutor
@@ -70,31 +71,71 @@ class ChatService:
         executor: RouterToolExecutor | None = None,
         cache: RouterContextCache | None = None,
         snapshot_service: RouterSnapshotService | None = None,
+        router_manager: RouterManager | None = None,
     ) -> None:
         self._manager = manager
         self._snapshot = snapshot
         self._router_tool = router_tool
-        if registry is None:
-            registry = self._build_registry(router_tool)
-        self._registry = registry
-        self._selector = selector if selector is not None else RouterToolSelector(registry)
-        self._detector = detector if detector is not None else RouterIntentDetector(self._selector)
-        self._executor = executor if executor is not None else RouterToolExecutor(registry)
-        self._cache = cache if cache is not None else RouterContextCache()
-        self._snapshot_service = (
-            snapshot_service if snapshot_service is not None else RouterSnapshotService(self._cache)
-        )
+        self._router_manager = router_manager
+        if router_manager is None:
+            if registry is None:
+                registry = self._build_registry(router_tool)
+            self._registry = registry
+            self._selector = selector if selector is not None else RouterToolSelector(registry)
+            self._detector = (
+                detector if detector is not None else RouterIntentDetector(self._selector)
+            )
+            self._executor = executor if executor is not None else RouterToolExecutor(registry)
+            self._cache = cache if cache is not None else RouterContextCache()
+            self._snapshot_service = (
+                snapshot_service
+                if snapshot_service is not None
+                else RouterSnapshotService(self._cache)
+            )
+        else:
+            self._registry = None
+            self._selector = None
+            self._detector = None
+            self._executor = None
+            self._cache = None
+            self._snapshot_service = None
 
     @staticmethod
     def _build_registry(router_tool: RouterTool | None) -> RouterToolRegistry:
-        registry = RouterToolRegistry()
-        if router_tool is not None:
-            registry.register("system", router_tool.get_system_info)
-            registry.register("cpu", router_tool.get_cpu_info)
-            registry.register("memory", router_tool.get_memory_info)
-            registry.register("storage", router_tool.get_storage_info)
-            registry.register("network", router_tool.get_network_info)
-        return registry
+        return RouterManager.build_registry(router_tool)
+
+    def _resolve_router(self, router_id: str | None) -> RegisteredRouter | None:
+        """Resolve the router instance to operate against.
+
+        When a :class:`RouterManager` is configured, the router is resolved by
+        its identifier (or the default router when ``router_id`` is ``None``).
+        Unknown ids return ``None``. Without a manager, the single configured
+        router is returned.
+        """
+        if self._router_manager is None:
+            if self._router_tool is None:
+                return None
+            return self._router_manager_builtin()
+        try:
+            if router_id is not None:
+                return self._router_manager.resolve(router_id)
+            return self._router_manager.default
+        except UnknownRouterError:
+            return None
+
+    def _router_manager_builtin(self) -> RegisteredRouter:
+        """Expose the single configured router as a lightweight registered router."""
+        tool = RouterTool(lambda: None) if self._router_tool is None else self._router_tool
+        return RegisteredRouter(
+            router_id="default",
+            tool=tool,
+            registry=self._registry,
+            selector=self._selector,
+            detector=self._detector,
+            executor=self._executor,
+            cache=self._cache,
+            snapshot_service=self._snapshot_service,
+        )
 
     def router_context_markdown(
         self,
@@ -102,6 +143,7 @@ class ChatService:
         *,
         router_aware: bool | None = None,
         session_id: str | None = None,
+        router_id: str | None = None,
     ) -> str | None:
         """Collect router context markdown for ``message``.
 
@@ -116,22 +158,24 @@ class ChatService:
         ``router_aware`` overrides detection: ``True`` forces the router layer,
         ``False`` skips it, and ``None`` (default) auto-detects intent.
         ``session_id`` scopes cached results to the conversation.
+        ``router_id`` selects the router (default router when ``None``).
         """
-        if self._router_tool is None:
+        router = self._resolve_router(router_id)
+        if router is None:
             return None
         if router_aware is False:
             return None
-        if router_aware is None and self._detector.classify(message) == "non-router":
+        if router_aware is None and router.detector.classify(message) == "non-router":
             return None
-        requests = self._selector.select(message)
+        requests = router.selector.select(message)
         if not requests:
             return None
         try:
-            snapshot = self._snapshot_service.build(self._executor, session_id, requests)
+            snapshot = router.snapshot_service.build(router.executor, session_id, requests)
         except Exception:
             return None
         try:
-            return self._snapshot_service.render_markdown(snapshot, intents=requests)
+            return router.snapshot_service.render_markdown(snapshot, intents=requests)
         except Exception:
             return None
 
