@@ -92,9 +92,18 @@ class ChatService:
         history: list[tuple[str, str]],
         model: str | None = None,
         temperature: float | None = None,
+        router_context: str | None = None,
     ) -> ChatRequest:
-        """Build the full request: system prompt + stored history + user message."""
-        messages = [ChatMessage(role="system", content=self.system_prompt())]
+        """Build the full request: system prompt + stored history + user message.
+
+        ``router_context`` (markdown from the router context service) is appended
+        to the system prompt when the request is router-aware; when omitted the
+        system prompt is unchanged.
+        """
+        system = self.system_prompt()
+        if router_context:
+            system = f"{system}\n\nROUTER CONTEXT:\n{router_context}"
+        messages = [ChatMessage(role="system", content=system)]
         for role, content in history:
             if role in ("user", "assistant"):
                 messages.append(ChatMessage(role=role, content=content))

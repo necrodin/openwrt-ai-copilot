@@ -23,12 +23,28 @@ from app.db.chat_store import ChatStore
 from app.schemas.chat import ChatRequestBody
 from app.services.chat_service import ChatService, NoChatProviderError
 from app.services.rag_service import RAGService
+from app.services.router_context import build_context
 
 router = APIRouter(tags=["chat"])
 
 
 def _chat_service(request: Request) -> ChatService:
     return request.app.state.chat_service
+
+
+def _router_context_markdown(request: Request) -> str | None:
+    """Collect the current router context markdown (best-effort, never raises).
+
+    Returns ``None`` when the router context service is unavailable or has no
+    snapshot so a router-aware chat still proceeds normally.
+    """
+    service = getattr(request.app.state, "snapshot_service", None)
+    if service is None:
+        return None
+    context = build_context(service.latest())
+    if not context.get("available"):
+        return None
+    return context["markdown"]
 
 
 def _rag_service(request: Request) -> RAGService | None:
@@ -138,6 +154,7 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
         history=history,
         model=body.model,
         temperature=body.temperature,
+        router_context=_router_context_markdown(request) if body.router_aware else None,
     )
     try:
         response = await service.complete(provider, chat_request)
@@ -250,6 +267,7 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
             history=history,
             model=body.model,
             temperature=body.temperature,
+            router_context=_router_context_markdown(request) if body.router_aware else None,
         )
         reply_parts = []
         try:

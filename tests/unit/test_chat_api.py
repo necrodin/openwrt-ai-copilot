@@ -10,11 +10,13 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 import httpx
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.schemas.dashboard import DashboardUpdate
 from app.services.chat_service import ChatService
 from app.services.demo_source import build_simulated_snapshot
 from providers.factory import ProviderManager
@@ -22,6 +24,26 @@ from providers.openai import OpenAIProvider
 from tests.unit.providers_helpers import make_provider
 
 SNAPSHOT = build_simulated_snapshot()
+
+
+class FakeSnapshotService:
+    def __init__(self, update: DashboardUpdate | None) -> None:
+        self._update = update
+
+    def latest(self) -> DashboardUpdate | None:
+        return self._update
+
+
+def _router_update() -> DashboardUpdate:
+    return DashboardUpdate(
+        type="update",
+        sequence=1,
+        sent_at=datetime.now(UTC),
+        source="simulated",
+        device_id="demo-router",
+        connected=True,
+        snapshot=build_simulated_snapshot(),
+    )
 
 
 def _handler_for(seen: dict) -> Callable[[httpx.Request], httpx.Response]:
@@ -62,10 +84,17 @@ def _manager(seen: dict) -> ProviderManager:
 
 
 @contextmanager
-def _client(manager: ProviderManager, *, snapshot=SNAPSHOT) -> TestClient:
+def _client(
+    manager: ProviderManager,
+    *,
+    snapshot=SNAPSHOT,
+    snapshot_service=None,
+) -> TestClient:
     app = create_app()
     with TestClient(app) as client:
         app.state.chat_service = ChatService(manager, lambda: snapshot)
+        if snapshot_service is not None:
+            app.state.snapshot_service = snapshot_service
         yield client
 
 
@@ -170,3 +199,84 @@ def test_chat_sessions_lists_known_sessions() -> None:
     body = sessions.json()
     ids = [session["session_id"] for session in body["sessions"]]
     assert "session-list" in ids
+
+
+# ── router-aware chat ─────────────────────────────────────────────────────────
+
+
+def test_chat_router_aware_injects_router_context() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={"session_id": "ra1", "message": "status", "router_aware": True},
+        )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Hello router"
+
+    sent = seen["messages"]
+    assert sent[0]["role"] == "system"
+    assert "ROUTER CONTEXT" in sent[0]["content"]
+    assert "## Router: demo-router" in sent[0]["content"]
+    assert sent[-1] == {"role": "user", "content": "status"}
+
+
+def test_chat_not_router_aware_no_router_context() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        response = client.post("/api/v1/chat", json={"session_id": "ra2", "message": "status"})
+    assert response.status_code == 200
+    sent = seen["messages"]
+    assert "ROUTER CONTEXT" not in sent[0]["content"]
+
+
+def test_chat_router_aware_unavailable_router_continues() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(None),
+    ) as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={"session_id": "ra3", "message": "status", "router_aware": True},
+        )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "Hello router"
+    sent = seen["messages"]
+    assert "ROUTER CONTEXT" not in sent[0]["content"]
+
+
+def test_chat_stream_router_aware_injects_router_context() -> None:
+    seen: dict = {}
+    with _client(
+        _manager(seen),
+        snapshot_service=FakeSnapshotService(_router_update()),
+    ) as client:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"session_id": "ra4", "message": "status", "router_aware": True},
+        )
+    assert response.status_code == 200
+    assert '"type": "done"' in response.text
+    sent = seen["messages"]
+    assert sent[0]["role"] == "system"
+    assert "ROUTER CONTEXT" in sent[0]["content"]
+
+
+def test_compose_accepts_router_context() -> None:
+    service = ChatService(ProviderManager({}), lambda: SNAPSHOT)
+    request = service.compose(
+        message="hi",
+        history=[],
+        router_context="# Router markdown",
+    )
+    assert request.messages[0].role == "system"
+    assert "ROUTER CONTEXT" in request.messages[0].content
+    assert "# Router markdown" in request.messages[0].content
+    assert request.messages[-1].content == "hi"

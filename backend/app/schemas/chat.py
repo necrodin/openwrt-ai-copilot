@@ -11,3 +11,4 @@ class ChatRequestBody(BaseModel):
     provider: str | None = None
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    router_aware: bool = False
