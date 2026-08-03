@@ -23,7 +23,7 @@ from app.db.chat_store import ChatStore
 from app.schemas.chat import ChatRequestBody
 from app.services.chat_service import ChatService, NoChatProviderError
 from app.services.rag_service import RAGService
-from app.services.router_context import build_context
+from app.services.router_tool import RouterTool
 
 router = APIRouter(tags=["chat"])
 
@@ -33,18 +33,18 @@ def _chat_service(request: Request) -> ChatService:
 
 
 def _router_context_markdown(request: Request) -> str | None:
-    """Collect the current router context markdown (best-effort, never raises).
+    """Collect the current router state as markdown via the Router Tool.
 
-    Returns ``None`` when the router context service is unavailable or has no
-    snapshot so a router-aware chat still proceeds normally.
+    Best-effort and never raises: if the snapshot service or the tool fails, the
+    conversation continues without the router section.
     """
     service = getattr(request.app.state, "snapshot_service", None)
     if service is None:
         return None
-    context = build_context(service.latest())
-    if not context.get("available"):
+    try:
+        return RouterTool(service.latest).render_markdown()
+    except Exception:
         return None
-    return context["markdown"]
 
 
 def _rag_service(request: Request) -> RAGService | None:

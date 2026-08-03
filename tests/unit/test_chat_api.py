@@ -220,7 +220,12 @@ def test_chat_router_aware_injects_router_context() -> None:
     sent = seen["messages"]
     assert sent[0]["role"] == "system"
     assert "ROUTER CONTEXT" in sent[0]["content"]
-    assert "## Router: demo-router" in sent[0]["content"]
+    assert "## Router" in sent[0]["content"]
+    assert "- Hostname: demo-router" in sent[0]["content"]
+    assert "## CPU" in sent[0]["content"]
+    assert "## Memory" in sent[0]["content"]
+    assert "## Storage" in sent[0]["content"]
+    assert "## Network Interfaces" in sent[0]["content"]
     assert sent[-1] == {"role": "user", "content": "status"}
 
 
