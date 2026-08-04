@@ -1,4 +1,4 @@
-export type Source = "ssh" | "local" | "simulated";
+export type Source = "ssh" | "local" | "simulated" | "none";
 
 export type CpuInfo = {
   load_1: number;

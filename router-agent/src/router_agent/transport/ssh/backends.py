@@ -163,7 +163,7 @@ class AsyncSSHBackend:
             ) from exc
         except TimeoutError as exc:
             raise SSHTimeoutError(f"connect to {config.host} timed out") from exc
-        except (asyncssh.ConnectError, asyncssh.OSError) as exc:
+        except asyncssh.Error as exc:
             raise SSHConnectionError(f"connect to {config.host}: {exc}") from exc
 
         if config.keepalive_interval > 0:

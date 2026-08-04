@@ -15,12 +15,13 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.chat_store import store as chat_store
+from app.db.router_store import store as router_store
 from app.services.chat_service import ChatService
 from app.services.provider_manager import load_provider_manager
 from app.services.rag_service import load_rag_service
 from app.services.router_manager import RouterManager
 from app.services.router_tool import RouterTool
-from app.services.snapshot_service import SnapshotService
+from app.services.snapshot_service import RouterConnection, SnapshotService
 from database.session import init_db
 
 
@@ -30,6 +31,20 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     init_db()
     application.state.provider_manager = load_provider_manager()
     snapshot_service = SnapshotService()
+    # If a router was configured previously (onboarding), reconnect to it so the
+    # dashboard and chat resume with real data across restarts.
+    saved = router_store.get_most_recent()
+    if saved is not None:
+        snapshot_service.configure_connection(
+            RouterConnection(
+                host=saved.host,
+                port=saved.port,
+                username=saved.username,
+                password=saved.password,
+                private_key=saved.private_key,
+                device_id=saved.device_id,
+            )
+        )
     application.state.snapshot_service = snapshot_service
     snapshot_service.start()
     application.state.chat_store = chat_store

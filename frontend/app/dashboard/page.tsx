@@ -1,10 +1,11 @@
 "use client";
 
-import { Activity } from "lucide-react";
+import { Activity, Router as RouterIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BandwidthWidget } from "@/components/dashboard/bandwidth-widget";
 import { CpuWidget } from "@/components/dashboard/cpu-widget";
@@ -24,6 +25,7 @@ import {
   sourceLabel,
   type ConnectionStatus,
 } from "@/lib/dashboard-utils";
+import { listConnections, type SavedRouter } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: ConnectionStatus }) {
@@ -291,6 +293,26 @@ export default function DashboardPage() {
   const firmware = snapshot?.kernel?.version ?? snapshot?.meta?.firmware ?? null;
   const kernel = snapshot?.kernel?.kernel ?? null;
 
+  const [routers, setRouters] = useState<SavedRouter[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listConnections()
+      .then((data) => {
+        if (!cancelled) {
+          setRouters(data.routers);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRouters([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [routerStatus, setRouterStatus] = useState<RouterStatusResponse | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -324,6 +346,44 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  if (routers === null) {
+    return (
+      <main className="mx-auto w-full max-w-7xl space-y-6 p-6">
+        <Skeleton className="h-9 w-48" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-44 w-full rounded-xl" />
+          ))}
+        </div>
+      </main>
+    );
+  }
+
+  if (routers.length === 0) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-6 p-6 text-center">
+        <span className="flex size-12 items-center justify-center rounded-full border bg-muted">
+          <RouterIcon className="size-6 text-muted-foreground" aria-hidden />
+        </span>
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold tracking-tight">No router connected</h1>
+          <p className="text-sm text-muted-foreground">
+            Connect your OpenWrt device to see live network telemetry here.
+            Until then there is nothing to show — no demo data.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button asChild>
+            <Link href="/onboarding">Connect your router</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/">Home</Link>
+          </Button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto w-full max-w-7xl space-y-6 p-6">

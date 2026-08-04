@@ -7,6 +7,11 @@ runs in a worker thread so the event loop is never stalled.
 
 If the device is unreachable the previous good snapshot is retained and
 ``connected`` is set to ``False``; polling continues so recovery is automatic.
+
+Source ``"none"`` is the out-of-the-box state: no router has been configured,
+so nothing is collected and no simulated data is produced. Use
+:meth:`SnapshotService.configure_connection` to attach a real router (e.g. from
+the onboarding wizard); the app then polls it over SSH.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,35 +38,61 @@ from router_agent.transport.ubus import UbusClient
 
 logger = logging.getLogger(__name__)
 
-Source = str  # "ssh" | "local" | "simulated"
+Source = str  # "ssh" | "local" | "simulated" | "none"
 
-_SOURCES = {"ssh", "local", "simulated"}
+_SOURCES = {"ssh", "local", "simulated", "none"}
+
+
+@dataclass(frozen=True)
+class RouterConnection:
+    """Credentials for connecting to a real router over SSH."""
+
+    host: str
+    port: int = 22
+    username: str = "root"
+    password: str | None = None
+    private_key: str | None = None
+    device_id: str | None = None
 
 
 def resolve_source() -> Source:
-    """Choose the collection source from settings (empty = smart default)."""
+    """Choose the collection source from settings (empty = not configured)."""
     if settings.router_device_transport:
         return settings.router_device_transport
-    return "ssh" if settings.router_device_host else "simulated"
+    if settings.router_device_host:
+        return "ssh"
+    return "none"
 
 
 class SnapshotService:
     """Collects router snapshots and broadcasts them to WebSocket subscribers."""
 
-    def __init__(self, *, interval: float | None = None, source: Source | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        interval: float | None = None,
+        source: Source | None = None,
+        connection: RouterConnection | None = None,
+    ) -> None:
         self._interval = interval if interval is not None else settings.router_poll_interval
-        self._source = (source if source is not None else resolve_source()) or "simulated"
+        self._connection = connection
+        self._source = (source if source is not None else resolve_source()) or "none"
         if self._source not in _SOURCES:
-            self._source = "simulated"
+            self._source = "none"
         self._subscribers: set[asyncio.Queue[DashboardUpdate]] = set()
         self._latest: DashboardUpdate | None = None
         self._task: asyncio.Task[None] | None = None
         self._sequence = 0
-        self._device_id = settings.router_device_host or "demo-router"
+        if connection is not None:
+            self._device_id = connection.device_id or connection.host
+        else:
+            self._device_id = settings.router_device_host or "demo-router"
 
     # -- lifecycle --------------------------------------------------------- #
 
     def start(self) -> None:
+        if self._source == "none":
+            return
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run(), name="dashboard-snapshot")
 
@@ -91,6 +123,14 @@ class SnapshotService:
     def unsubscribe(self, queue: asyncio.Queue[DashboardUpdate]) -> None:
         self._subscribers.discard(queue)
 
+    def configure_connection(self, connection: RouterConnection) -> RouterConnection:
+        """Attach a real router and clear any previously collected (stale) data."""
+        self._connection = connection
+        self._source = "ssh"
+        self._device_id = connection.device_id or connection.host
+        self._latest = None
+        return connection
+
     # -- internals --------------------------------------------------------- #
 
     async def _run(self) -> None:
@@ -106,6 +146,8 @@ class SnapshotService:
             await asyncio.sleep(max(0.0, self._interval - elapsed))
 
     def _collect_once(self) -> DashboardUpdate:
+        if self._source == "none":
+            return self._frame(connected=False, error="No router configured")
         if self._source == "simulated":
             return self._frame(
                 connected=True,
@@ -114,14 +156,34 @@ class SnapshotService:
                 snapshot=build_simulated_snapshot(),
             )
 
+        conn = self._connection
+        if conn is not None:
+            host = conn.host
+            port = conn.port
+            username = conn.username
+            password = conn.password or None
+            key_path: Path | None = None
+            private_key = conn.private_key or None
+            command_timeout = self._interval + 10.0
+            device_id = conn.device_id or host
+        else:
+            host = settings.router_device_host
+            port = settings.router_device_port
+            username = settings.router_username
+            password = settings.router_password or None
+            key_path = Path(settings.router_ssh_key) if settings.router_ssh_key else None
+            private_key = None
+            command_timeout = settings.router_poll_interval + 10.0
+            device_id = self._device_id
+
         config = AgentConfig(
-            device_id=self._device_id,
-            host=settings.router_device_host,
-            port=settings.router_device_port,
-            username=settings.router_username,
-            ssh_key_path=Path(settings.router_ssh_key) if settings.router_ssh_key else None,
-            password=settings.router_password or None,
-            command_timeout=settings.router_poll_interval + 10.0,
+            device_id=device_id,
+            host=host,
+            port=port,
+            username=username,
+            ssh_key_path=key_path,
+            password=password,
+            command_timeout=command_timeout,
         )
         runner: CommandRunner
         if self._source == "local":
@@ -134,6 +196,7 @@ class SnapshotService:
                 username=config.username,
                 password=config.password,
                 key_path=config.ssh_key_path,
+                private_key=private_key,
                 command_timeout=config.command_timeout,
             )
             transport = "ssh"

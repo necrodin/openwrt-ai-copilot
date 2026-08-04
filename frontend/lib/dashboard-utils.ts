@@ -109,6 +109,8 @@ export function sourceLabel(source: Source): string {
       return "Local";
     case "simulated":
       return "Demo";
+    case "none":
+      return "Not configured";
   }
 }
 
