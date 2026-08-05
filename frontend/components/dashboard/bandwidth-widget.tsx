@@ -8,7 +8,12 @@ import { formatBitRate, formatBytes } from "@/lib/dashboard-utils";
 import { Sparkline } from "@/components/dashboard/sparkline";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { snapshot: DeviceSnapshot | null };
+type Props = {
+  snapshot: DeviceSnapshot | null;
+  loading?: boolean;
+  error?: string | null;
+  className?: string;
+};
 
 const HISTORY_LIMIT = 60;
 
@@ -22,7 +27,7 @@ function totalTraffic(snapshot: DeviceSnapshot): { rx: number; tx: number } {
   );
 }
 
-export function BandwidthWidget({ snapshot }: Props) {
+export function BandwidthWidget({ snapshot, loading = false, error = null, className }: Props) {
   const [rates, setRates] = useState<{ rx: number; tx: number }>({ rx: 0, tx: 0 });
   const [history, setHistory] = useState<{ rx: number[]; tx: number[] }>({
     rx: [],
@@ -56,14 +61,14 @@ export function BandwidthWidget({ snapshot }: Props) {
 
   if (snapshot === null || snapshot.network.length === 0) {
     return (
-      <Widget title="Bandwidth" icon={Activity}>
+      <Widget title="Bandwidth" icon={Activity} loading={loading} error={error} className={className}>
         <EmptyState message="Waiting for traffic data." />
       </Widget>
     );
   }
 
   return (
-    <Widget title="Bandwidth" icon={Activity} subtitle="Live throughput (last 60 samples)">
+    <Widget title="Bandwidth" icon={Activity} subtitle="Live throughput (last 60 samples)" loading={loading} error={error} className={className}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-md border p-3">

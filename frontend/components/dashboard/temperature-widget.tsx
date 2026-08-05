@@ -4,7 +4,11 @@ import type { TemperatureReading } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { temperature: TemperatureReading[] };
+type Props = {
+  temperature: TemperatureReading[];
+  loading?: boolean;
+  error?: string | null;
+};
 
 function toneClass(celsius: number): string {
   if (celsius >= 75) {
@@ -16,17 +20,23 @@ function toneClass(celsius: number): string {
   return "bg-emerald-500 text-white";
 }
 
-export function TemperatureWidget({ temperature }: Props) {
+export function TemperatureWidget({ temperature, loading = false, error = null }: Props) {
   if (temperature.length === 0) {
     return (
-      <Widget title="Temperature" icon={Thermometer}>
+      <Widget title="Temperature" icon={Thermometer} loading={loading} error={error}>
         <EmptyState message="No temperature sensors found." />
       </Widget>
     );
   }
 
   return (
-    <Widget title="Temperature" icon={Thermometer} subtitle={`${temperature.length} sensors`}>
+    <Widget
+      title="Temperature"
+      icon={Thermometer}
+      subtitle={`${temperature.length} sensors`}
+      loading={loading}
+      error={error}
+    >
       <ul className="space-y-2">
         {temperature.map((reading) => (
           <li

@@ -5,19 +5,29 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { vpn: VpnTunnel[] };
+type Props = {
+  vpn: VpnTunnel[];
+  loading?: boolean;
+  error?: string | null;
+};
 
-export function VpnWidget({ vpn }: Props) {
+export function VpnWidget({ vpn, loading = false, error = null }: Props) {
   if (vpn.length === 0) {
     return (
-      <Widget title="VPN" icon={Lock}>
+      <Widget title="VPN" icon={Lock} loading={loading} error={error}>
         <EmptyState message="No VPN tunnels configured." />
       </Widget>
     );
   }
 
   return (
-    <Widget title="VPN" icon={Lock} subtitle={`${vpn.length} tunnel${vpn.length > 1 ? "s" : ""}`}>
+    <Widget
+      title="VPN"
+      icon={Lock}
+      subtitle={`${vpn.length} tunnel${vpn.length > 1 ? "s" : ""}`}
+      loading={loading}
+      error={error}
+    >
       <ul className="space-y-2">
         {vpn.map((tunnel) => (
           <li

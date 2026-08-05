@@ -5,7 +5,11 @@ import { formatBytes } from "@/lib/dashboard-utils";
 import { Gauge } from "@/components/dashboard/gauge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { memory: MemoryInfo | null };
+type Props = {
+  memory: MemoryInfo | null;
+  loading?: boolean;
+  error?: string | null;
+};
 
 function tone(percent: number) {
   if (percent >= 90) {
@@ -17,10 +21,10 @@ function tone(percent: number) {
   return "good" as const;
 }
 
-export function MemoryWidget({ memory }: Props) {
+export function MemoryWidget({ memory, loading = false, error = null }: Props) {
   if (memory === null) {
     return (
-      <Widget title="RAM" icon={MemoryStick}>
+      <Widget title="RAM" icon={MemoryStick} loading={loading} error={error}>
         <EmptyState message="No memory data available." />
       </Widget>
     );
@@ -33,6 +37,8 @@ export function MemoryWidget({ memory }: Props) {
       title="RAM"
       icon={MemoryStick}
       subtitle={`${formatBytes(memory.total_kb * 1024)} total`}
+      loading={loading}
+      error={error}
     >
       <div className="space-y-3">
         <div className="flex items-baseline justify-between">

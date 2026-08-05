@@ -5,12 +5,16 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { wifi: WifiInfo };
+type Props = {
+  wifi: WifiInfo;
+  loading?: boolean;
+  error?: string | null;
+};
 
-export function WirelessWidget({ wifi }: Props) {
+export function WirelessWidget({ wifi, loading = false, error = null }: Props) {
   if (wifi.radios.length === 0) {
     return (
-      <Widget title="Wireless" icon={Wifi}>
+      <Widget title="Wireless" icon={Wifi} loading={loading} error={error}>
         <EmptyState message="No wireless radios found." />
       </Widget>
     );
@@ -23,6 +27,8 @@ export function WirelessWidget({ wifi }: Props) {
       title="Wireless"
       icon={Wifi}
       subtitle={`${wifi.clients.length} client${wifi.clients.length === 1 ? "" : "s"} connected`}
+      loading={loading}
+      error={error}
     >
       <ul className="space-y-2">
         {wifi.radios.map((radio) => (

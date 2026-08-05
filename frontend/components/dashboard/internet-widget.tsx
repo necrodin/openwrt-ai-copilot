@@ -4,9 +4,13 @@ import type { DeviceSnapshot } from "@/lib/dashboard";
 import { isWan } from "@/lib/dashboard-utils";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { Widget } from "@/components/dashboard/widget";
+import { Widget, EmptyState } from "@/components/dashboard/widget";
 
-type Props = { snapshot: DeviceSnapshot };
+type Props = {
+  snapshot: DeviceSnapshot | null;
+  loading?: boolean;
+  error?: string | null;
+};
 
 type Status = {
   label: string;
@@ -47,12 +51,25 @@ function internetStatus(snapshot: DeviceSnapshot): Status {
   };
 }
 
-export function InternetWidget({ snapshot }: Props) {
+export function InternetWidget({ snapshot, loading = false, error = null }: Props) {
+  if (snapshot === null) {
+    return (
+      <Widget title="Internet" icon={Wifi} loading={loading} error={error}>
+        <EmptyState message="Waiting for network data." />
+      </Widget>
+    );
+  }
   const status = internetStatus(snapshot);
   const kernel = snapshot.kernel;
 
   return (
-    <Widget title="Internet" icon={Wifi} subtitle={kernel.model || kernel.board || "router"}>
+    <Widget
+      title="Internet"
+      icon={Wifi}
+      subtitle={kernel.model || kernel.board || "router"}
+      loading={loading}
+      error={error}
+    >
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <Badge

@@ -4,9 +4,16 @@ import type { DeviceSnapshot, DhcpLease } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { snapshot: DeviceSnapshot };
+type Props = {
+  snapshot: DeviceSnapshot | null;
+  loading?: boolean;
+  error?: string | null;
+};
 
-function connectedDevices(snapshot: DeviceSnapshot): DhcpLease[] {
+function connectedDevices(snapshot: DeviceSnapshot | null): DhcpLease[] {
+  if (snapshot === null) {
+    return [];
+  }
   if (snapshot.clients.length > 0) {
     return snapshot.clients;
   }
@@ -19,12 +26,18 @@ function connectedDevices(snapshot: DeviceSnapshot): DhcpLease[] {
   }));
 }
 
-export function DevicesWidget({ snapshot }: Props) {
+export function DevicesWidget({ snapshot, loading = false, error = null }: Props) {
   const devices = connectedDevices(snapshot);
 
   if (devices.length === 0) {
     return (
-      <Widget title="Connected Devices" icon={MonitorSmartphone}>
+      <Widget
+        title="Connected Devices"
+        icon={MonitorSmartphone}
+        className="lg:col-span-2"
+        loading={loading}
+        error={error}
+      >
         <EmptyState message="No clients discovered yet." />
       </Widget>
     );
@@ -36,6 +49,8 @@ export function DevicesWidget({ snapshot }: Props) {
       icon={MonitorSmartphone}
       subtitle={`${devices.length} device${devices.length === 1 ? "" : "s"} on the network`}
       className="lg:col-span-2"
+      loading={loading}
+      error={error}
     >
       <div className="max-h-64 overflow-y-auto">
         <table className="w-full text-sm">

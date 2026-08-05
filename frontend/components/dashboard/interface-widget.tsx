@@ -12,6 +12,8 @@ type Props = {
   interfaces: NetworkInterface[];
   subtitle?: string;
   className?: string;
+  loading?: boolean;
+  error?: string | null;
 };
 
 export function InterfaceWidget({
@@ -20,10 +22,12 @@ export function InterfaceWidget({
   interfaces,
   subtitle,
   className,
+  loading = false,
+  error = null,
 }: Props) {
   if (interfaces.length === 0) {
     return (
-      <Widget title={title} icon={icon} className={className}>
+      <Widget title={title} icon={icon} className={className} loading={loading} error={error}>
         <EmptyState message={`No ${title.toLowerCase()} interface detected.`} />
       </Widget>
     );
@@ -35,6 +39,8 @@ export function InterfaceWidget({
       icon={icon}
       subtitle={subtitle ?? `${interfaces.length} interface${interfaces.length > 1 ? "s" : ""}`}
       className={className}
+      loading={loading}
+      error={error}
     >
       <ul className="space-y-3">
         {interfaces.map((iface) => {

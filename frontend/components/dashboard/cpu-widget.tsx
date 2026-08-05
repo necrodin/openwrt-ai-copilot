@@ -5,7 +5,7 @@ import { formatDuration } from "@/lib/dashboard-utils";
 import { Gauge } from "@/components/dashboard/gauge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { cpu: CpuInfo | null };
+type Props = { cpu: CpuInfo | null; loading?: boolean; error?: string | null };
 
 function tone(value: number) {
   if (value >= 85) {
@@ -17,10 +17,10 @@ function tone(value: number) {
   return "good" as const;
 }
 
-export function CpuWidget({ cpu }: Props) {
+export function CpuWidget({ cpu, loading = false, error = null }: Props) {
   if (cpu === null || cpu.usage_percent === null) {
     return (
-      <Widget title="CPU" icon={Cpu}>
+      <Widget title="CPU" icon={Cpu} loading={loading} error={error}>
         <EmptyState message="No CPU data available." />
       </Widget>
     );
@@ -31,6 +31,8 @@ export function CpuWidget({ cpu }: Props) {
       title="CPU"
       icon={Cpu}
       subtitle={`${cpu.cores} cores · ${cpu.frequency_mhz ? `${cpu.frequency_mhz} MHz` : "frequency n/a"} · up ${formatDuration(cpu.uptime_seconds)}`}
+      loading={loading}
+      error={error}
     >
       <div className="space-y-3">
         <div className="flex items-baseline justify-between">

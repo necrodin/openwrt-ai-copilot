@@ -4,7 +4,11 @@ import type { FirewallInfo } from "@/lib/dashboard";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { firewall: FirewallInfo };
+type Props = {
+  firewall: FirewallInfo;
+  loading?: boolean;
+  error?: string | null;
+};
 
 function policyVariant(policy: string | null) {
   if (policy === "ACCEPT") {
@@ -16,10 +20,10 @@ function policyVariant(policy: string | null) {
   return "secondary" as const;
 }
 
-export function FirewallWidget({ firewall }: Props) {
+export function FirewallWidget({ firewall, loading = false, error = null }: Props) {
   if (firewall.zones.length === 0) {
     return (
-      <Widget title="Firewall" icon={Shield}>
+      <Widget title="Firewall" icon={Shield} loading={loading} error={error}>
         <EmptyState message="No firewall zones found." />
       </Widget>
     );
@@ -30,6 +34,8 @@ export function FirewallWidget({ firewall }: Props) {
       title="Firewall"
       icon={Shield}
       subtitle={`${firewall.zones.length} zones · ${firewall.rules.length} rules`}
+      loading={loading}
+      error={error}
     >
       <ul className="space-y-2">
         {firewall.zones.map((zone) => (

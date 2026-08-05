@@ -5,7 +5,11 @@ import { formatBytes } from "@/lib/dashboard-utils";
 import { Gauge } from "@/components/dashboard/gauge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
-type Props = { storage: StorageMount[] };
+type Props = {
+  storage: StorageMount[];
+  loading?: boolean;
+  error?: string | null;
+};
 
 function tone(percent: number | null) {
   if (percent === null) {
@@ -20,17 +24,23 @@ function tone(percent: number | null) {
   return "good" as const;
 }
 
-export function StorageWidget({ storage }: Props) {
+export function StorageWidget({ storage, loading = false, error = null }: Props) {
   if (storage.length === 0) {
     return (
-      <Widget title="Storage" icon={HardDrive}>
+      <Widget title="Storage" icon={HardDrive} loading={loading} error={error}>
         <EmptyState message="No storage data available." />
       </Widget>
     );
   }
 
   return (
-    <Widget title="Storage" icon={HardDrive} subtitle={`${storage.length} mounts`}>
+    <Widget
+      title="Storage"
+      icon={HardDrive}
+      subtitle={`${storage.length} mounts`}
+      loading={loading}
+      error={error}
+    >
       <ul className="space-y-3">
         {storage.map((mount) => {
           const percent = mount.use_percent ?? null;
