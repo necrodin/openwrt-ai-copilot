@@ -8,7 +8,7 @@ import { SITE_CONFIG } from "@/lib/site-config";
  * Compact enterprise footer: a single 48px bar pinned to the bottom of the
  * shell. Contains only the product name, version, license, powered-by credit,
  * a GitHub link, and the live health indicator. All project links live in the
- * sidebar's "Open Source" section — see `sidebar-open-source.tsx`.
+ * sidebar's secondary navigation — see `sidebar.tsx`.
  */
 export function Footer() {
   return (

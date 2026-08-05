@@ -3,7 +3,7 @@
  *
  * Every external link (repository, issues, donations, socials) and every piece
  * of brand metadata lives here — a single source of truth for the About page,
- * the footer, and the sidebar's Open Source section.
+ * the footer, and the sidebar's secondary navigation.
  *
  * All values may be overridden at build/deploy time via `NEXT_PUBLIC_*`
  * environment variables.
