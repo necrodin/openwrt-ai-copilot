@@ -148,8 +148,8 @@ class AsyncSSHBackend:
         if config.known_hosts is not None:
             kwargs["known_hosts"] = str(config.known_hosts)
         elif config.host_key_policy == "auto":
-            # Trust-on-first-use, matching the previous AutoAddPolicy behavior.
-            kwargs["host_verification"] = False
+            # Disable host key verification (development / TOFU behavior)
+            kwargs["known_hosts"] = None
         elif config.host_key_policy == "reject":
             kwargs["known_hosts"] = asyncssh.KnownHosts()
 

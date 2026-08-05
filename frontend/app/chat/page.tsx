@@ -177,8 +177,11 @@ function RouterStatusCard({ data }: { data: RouterStatusResponse }) {
 
               {snapshot.storage && snapshot.storage.length > 0 ? (
                 <ul className="space-y-1 text-sm">
-                  {snapshot.storage.map((mount, index) => (
-                    <li key={index} className="flex justify-between gap-2">
+                  {snapshot.storage.map((mount) => (
+                    <li
+                      key={mount.mountpoint ?? mount.filesystem ?? "mount"}
+                      className="flex justify-between gap-2"
+                    >
                       <span className="text-muted-foreground">
                         {mount.mountpoint ?? "?"} ({mount.filesystem ?? "?"})
                       </span>

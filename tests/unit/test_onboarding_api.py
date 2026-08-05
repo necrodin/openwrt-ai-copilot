@@ -158,9 +158,7 @@ def test_detect_returns_onboarding_summary(
                     "proto": "static",
                     "mac": "00:11:22:33:44:55",
                     "link": True,
-                    "addresses": [
-                        {"address": "192.168.1.1", "prefix": 24, "family": "ipv4"}
-                    ],
+                    "addresses": [{"address": "192.168.1.1", "prefix": 24, "family": "ipv4"}],
                 }
             ],
             "wifi_radios": [

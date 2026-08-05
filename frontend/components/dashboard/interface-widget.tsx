@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 
 import type { NetworkInterface } from "@/lib/dashboard";
 import { formatBytes } from "@/lib/dashboard-utils";
-import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 
@@ -43,13 +42,22 @@ export function InterfaceWidget({
       error={error}
     >
       <ul className="space-y-3">
-        {interfaces.map((iface) => {
+        {interfaces.map((iface, index) => {
           const ipv4 = iface.addresses.find((address) => address.family === "ipv4");
           const ipv6 = iface.addresses.find((address) => address.family === "ipv6");
           return (
-            <li key={iface.name} className="space-y-2">
+            <li
+              key={`${iface.name}-${iface.device ?? ""}-${index}`}
+              className="space-y-2"
+            >
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{iface.name}</span>
+                <span className="flex items-center gap-2 font-medium">
+                  {iface.name}
+                  {iface.is_bridge ? <Badge variant="outline">bridge</Badge> : null}
+                  {iface.vlan_id != null ? (
+                    <Badge variant="outline">VLAN {iface.vlan_id}</Badge>
+                  ) : null}
+                </span>
                 <Badge variant={iface.up ? "default" : "secondary"}>
                   {iface.up ? "Up" : "Down"}
                 </Badge>
@@ -69,6 +77,16 @@ export function InterfaceWidget({
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">MAC</dt>
+                  <dd className="truncate font-mono text-xs">
+                    {iface.mac ?? "—"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">MTU</dt>
+                  <dd className="tabular-nums">{iface.mtu ?? "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">Received</dt>
                   <dd className="tabular-nums">{formatBytes(iface.rx_bytes)}</dd>
                 </div>
@@ -77,10 +95,12 @@ export function InterfaceWidget({
                   <dd className="tabular-nums">{formatBytes(iface.tx_bytes)}</dd>
                 </div>
               </dl>
-              {ipv6 ? (
-                <p className={cn("text-xs text-muted-foreground")}>
-                  {iface.device ? `${iface.device} · ` : ""}
-                  {ipv6.address}
+              {iface.gateway || ipv6 ? (
+                <p className="text-xs text-muted-foreground">
+                  {iface.gateway ? `gw ${iface.gateway}` : ""}
+                  {iface.gateway && ipv6 ? " · " : ""}
+                  {ipv6 ? ipv6.address : ""}
+                  {iface.device ? ` · ${iface.device}` : ""}
                 </p>
               ) : null}
             </li>

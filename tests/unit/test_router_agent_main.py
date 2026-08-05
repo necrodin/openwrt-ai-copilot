@@ -35,6 +35,7 @@ def test_only_exposes_all_collector_names() -> None:
         "vpn",
         "dhcp",
         "packages",
+        "services",
         "kernel",
         "logs",
     } == choices

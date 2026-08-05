@@ -65,7 +65,16 @@ def build_snapshot(
         collectors_run=ran,
     )
 
-    from router_agent.model import DhcpInfo, FirewallInfo, LogInfo, WifiInfo
+    from router_agent.model import DhcpInfo, FirewallInfo, LogInfo, NetworkStatus, WifiInfo
+
+    network_status = None
+    raw_status = ctx.state.get("network_status")
+    if isinstance(raw_status, dict):
+        network_status = NetworkStatus(
+            gateway=raw_status.get("gateway"),
+            dns=raw_status.get("dns") or [],
+            wan_interface=raw_status.get("wan_interface"),
+        )
 
     return DeviceSnapshot(
         meta=meta,
@@ -74,6 +83,7 @@ def build_snapshot(
         temperature=results.get("temperature", []),
         storage=results.get("storage", []),
         network=results.get("network", []),
+        network_status=network_status,
         firewall=results.get("firewall") or FirewallInfo(),
         wifi=results.get("wifi") or WifiInfo(),
         clients=results.get("clients", []),
@@ -82,6 +92,7 @@ def build_snapshot(
         vpn=results.get("vpn", []),
         dhcp=results.get("dhcp") or DhcpInfo(),
         packages=results.get("packages", []),
+        services=results.get("services", []),
         kernel=kernel,
         logs=results.get("logs") or LogInfo(),
         errors=errors,

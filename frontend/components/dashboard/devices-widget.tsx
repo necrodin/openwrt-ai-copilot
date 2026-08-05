@@ -63,8 +63,8 @@ export function DevicesWidget({ snapshot, loading = false, error = null }: Props
             </tr>
           </thead>
           <tbody>
-            {devices.map((device) => (
-              <tr key={device.mac ?? device.ip} className="border-t">
+            {devices.map((device, index) => (
+              <tr key={`${device.mac ?? device.ip ?? "dev"}-${index}`} className="border-t">
                 <td className="py-1.5 pr-2 font-medium">
                   {device.hostname || "—"}
                 </td>

@@ -8,6 +8,9 @@ export type CpuInfo = {
   uptime_seconds: number;
   usage_percent: number | null;
   frequency_mhz: number | null;
+  model: string | null;
+  architecture: string | null;
+  temperature_c: number | null;
 };
 
 export type MemoryInfo = {
@@ -17,6 +20,9 @@ export type MemoryInfo = {
   buffered_kb: number;
   cached_kb: number | null;
   available_kb: number | null;
+  swap_total_kb: number | null;
+  swap_free_kb: number | null;
+  swap_used_kb: number | null;
 };
 
 export type TemperatureReading = {
@@ -32,6 +38,12 @@ export type StorageMount = {
   used_bytes: number | null;
   available_bytes: number | null;
   use_percent: number | null;
+  inodes_total: number | null;
+  inodes_used: number | null;
+  inodes_available: number | null;
+  inode_use_percent: number | null;
+  wear: number | null;
+  health: string | null;
 };
 
 export type NetworkAddress = {
@@ -48,9 +60,19 @@ export type NetworkInterface = {
   mac: string | null;
   link: boolean | null;
   speed_mbps: number | null;
+  mtu: number | null;
   rx_bytes: number | null;
   tx_bytes: number | null;
+  is_bridge: boolean;
+  vlan_id: number | null;
+  gateway: string | null;
   addresses: NetworkAddress[];
+};
+
+export type NetworkStatus = {
+  gateway: string | null;
+  dns: string[];
+  wan_interface: string | null;
 };
 
 export type FirewallZone = {
@@ -76,6 +98,7 @@ export type WifiRadio = {
   tx_power: number | null;
   ssid: string | null;
   hwmode: string | null;
+  width_mhz: number | null;
   station_count: number;
 };
 
@@ -157,6 +180,15 @@ export type CollectError = {
   error: string;
 };
 
+export type ServiceInfo = {
+  name: string;
+  running: boolean;
+  enabled: boolean;
+  configured: boolean;
+  version: string | null;
+  detail: string | null;
+};
+
 export type DeviceSnapshot = {
   meta: SnapshotMeta;
   cpu: CpuInfo | null;
@@ -164,6 +196,7 @@ export type DeviceSnapshot = {
   temperature: TemperatureReading[];
   storage: StorageMount[];
   network: NetworkInterface[];
+  network_status: NetworkStatus | null;
   firewall: FirewallInfo;
   wifi: WifiInfo;
   clients: DhcpLease[];
@@ -172,6 +205,7 @@ export type DeviceSnapshot = {
   vpn: VpnTunnel[];
   dhcp: unknown;
   packages: unknown[];
+  services: ServiceInfo[];
   kernel: KernelInfo;
   logs: unknown;
   errors: CollectError[];

@@ -71,6 +71,22 @@ export function MemoryWidget({ memory, loading = false, error = null }: Props) {
             <dt className="text-muted-foreground">Buffered</dt>
             <dd className="tabular-nums">{formatBytes(memory.buffered_kb * 1024)}</dd>
           </div>
+          {memory.swap_total_kb != null ? (
+            <>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Swap used</dt>
+                <dd className="tabular-nums">
+                  {formatBytes((memory.swap_used_kb ?? 0) * 1024)}
+                </dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Swap total</dt>
+                <dd className="tabular-nums">
+                  {formatBytes(memory.swap_total_kb * 1024)}
+                </dd>
+              </div>
+            </>
+          ) : null}
         </dl>
       </div>
     </Widget>

@@ -86,6 +86,28 @@ export function InternetWidget({ snapshot, loading = false, error = null }: Prop
           </span>
         </div>
         <p className="text-sm text-muted-foreground">{status.detail}</p>
+        {snapshot.network_status ? (
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {snapshot.network_status.gateway ? (
+              <p>
+                <span className="font-medium">Gateway:</span>{" "}
+                {snapshot.network_status.gateway}
+              </p>
+            ) : null}
+            {snapshot.network_status.dns.length > 0 ? (
+              <p className="truncate">
+                <span className="font-medium">DNS:</span>{" "}
+                {snapshot.network_status.dns.join(" · ")}
+              </p>
+            ) : null}
+            {snapshot.network_status.wan_interface ? (
+              <p>
+                <span className="font-medium">Uplink:</span>{" "}
+                {snapshot.network_status.wan_interface}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </Widget>
   );

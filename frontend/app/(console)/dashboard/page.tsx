@@ -16,6 +16,7 @@ import { LanWidget } from "@/components/dashboard/lan-widget";
 import { MemoryWidget } from "@/components/dashboard/memory-widget";
 import { RecommendationsWidget } from "@/components/dashboard/recommendations-widget";
 import { StorageWidget } from "@/components/dashboard/storage-widget";
+import { ServicesWidget } from "@/components/dashboard/services-widget";
 import { TemperatureWidget } from "@/components/dashboard/temperature-widget";
 import { VpnWidget } from "@/components/dashboard/vpn-widget";
 import { WanWidget } from "@/components/dashboard/wan-widget";
@@ -195,6 +196,7 @@ export default function DashboardPage() {
           <BandwidthWidget snapshot={snapshot} loading={widgetLoading} error={widgetError} className="lg:col-span-3" />
           <DiagnosisWidget findings={findings} loading={statusLoading} error={statusError} />
           <RecommendationsWidget recommendations={recommendations} loading={statusLoading} error={statusError} />
+          <ServicesWidget services={snapshot?.services ?? []} loading={widgetLoading} error={widgetError} />
         </WidgetGrid>
       </div>
 

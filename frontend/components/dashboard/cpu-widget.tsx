@@ -26,6 +26,14 @@ export function CpuWidget({ cpu, loading = false, error = null }: Props) {
     );
   }
 
+  const identity = [
+    cpu.model,
+    cpu.architecture ? `arch ${cpu.architecture}` : null,
+    cpu.temperature_c != null ? `${cpu.temperature_c.toFixed(1)}°C` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <Widget
       title="CPU"
@@ -35,6 +43,9 @@ export function CpuWidget({ cpu, loading = false, error = null }: Props) {
       error={error}
     >
       <div className="space-y-3">
+        {identity ? (
+          <p className="truncate text-xs text-muted-foreground">{identity}</p>
+        ) : null}
         <div className="flex items-baseline justify-between">
           <span className="text-3xl font-semibold tabular-nums">
             {Math.round(cpu.usage_percent)}%

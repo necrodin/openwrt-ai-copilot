@@ -110,9 +110,7 @@ def test_probe_ok(use_fakes: dict) -> None:
 
 
 def test_probe_answer_wrong(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        svc, "_connect", lambda **kwargs: FakeTransport({"echo ok": "busy\n"})
-    )
+    monkeypatch.setattr(svc, "_connect", lambda **kwargs: FakeTransport({"echo ok": "busy\n"}))
     result = svc.probe_connection(host="h", port=22, username="root", password="pw")
     assert result["ok"] is False
     assert "did not answer" in result["error"]

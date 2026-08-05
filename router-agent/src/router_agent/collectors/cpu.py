@@ -1,7 +1,8 @@
 """CPU collector.
 
 Sources: ``ubus call system info`` for load averages and uptime;
-``/proc/cpuinfo`` for core count; cpufreq sysfs for current frequency.
+``/proc/cpuinfo`` for core count, model name, and architecture; cpufreq sysfs
+for current frequency; Linux thermal zones for on-die temperature when present.
 """
 
 from __future__ import annotations
@@ -10,6 +11,41 @@ from contextlib import suppress
 
 from router_agent.collectors.base import Collector, CollectorContext
 from router_agent.model import CpuInfo
+
+
+def _parse_cpuinfo(text: str) -> tuple[int, str | None, str | None]:
+    """Return ``(cores, model, architecture)`` from ``/proc/cpuinfo``."""
+    processors = 0
+    model: str | None = None
+    architecture: str | None = None
+    seen_models: set[str] = set()
+    seen_arch: set[str] = set()
+    for line in text.splitlines():
+        key, _, value = line.partition(":")
+        value = value.strip()
+        key = key.strip()
+        if key == "processor":
+            processors += 1
+        elif key == "model name" and value or key == "Hardware" and value:
+            seen_models.add(value)
+        elif key == "arch" and value or key == "model" and value:
+            seen_arch.add(value)
+    if seen_models:
+        model = next(iter(seen_models))
+    if seen_arch:
+        architecture = next(iter(seen_arch))
+    return processors, model, architecture
+
+
+def _thermal_celsius(ctx: CollectorContext) -> float | None:
+    """Best-effort CPU temperature from the first thermal zone."""
+    zones_raw = ctx.sh("ls /sys/class/thermal/", default="").split()
+    zones = [z for z in zones_raw if z.startswith("thermal_zone")]
+    for zone in zones:
+        raw = ctx.sh(f"cat /sys/class/thermal/{zone}/temp", default="").strip()
+        if raw.lstrip("-").isdigit():
+            return round(int(raw) / 1000, 2)
+    return None
 
 
 class CpuCollector(Collector):
@@ -21,11 +57,18 @@ class CpuCollector(Collector):
             info = ctx.ubus.call("system", "info")
 
         cores = 1
+        model: str | None = None
+        architecture: str | None = None
         cpuinfo = ctx.sh("cat /proc/cpuinfo", default="")
         if cpuinfo:
-            count = sum(1 for line in cpuinfo.splitlines() if line.startswith("processor"))
+            count, parsed_model, parsed_arch = _parse_cpuinfo(cpuinfo)
             if count:
                 cores = count
+            model = parsed_model
+            architecture = parsed_arch
+
+        if architecture is None and ctx.state.get("kernel"):
+            architecture = getattr(ctx.state["kernel"], "architecture", None) or None
 
         freq = None
         freq_raw = ctx.sh(
@@ -54,4 +97,7 @@ class CpuCollector(Collector):
             uptime_seconds=round(uptime, 1),
             usage_percent=round(min(100.0, (load_1 / cores) * 100.0), 1) if cores else None,
             frequency_mhz=freq,
+            model=model,
+            architecture=architecture,
+            temperature_c=_thermal_celsius(ctx),
         )

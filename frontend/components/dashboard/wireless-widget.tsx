@@ -46,6 +46,7 @@ export function WirelessWidget({ wifi, loading = false, error = null }: Props) {
               <p className="truncate text-xs text-muted-foreground">
                 {radio.frequency_mhz ? `${radio.frequency_mhz} MHz` : ""}
                 {radio.channel ? ` · ch ${radio.channel}` : ""}
+                {radio.width_mhz ? ` · ${radio.width_mhz} MHz` : ""}
                 {radio.tx_power ? ` · ${radio.tx_power} dBm` : ""}
               </p>
             </div>

@@ -27,6 +27,9 @@ class CpuInfo(BaseModel):
     uptime_seconds: float = 0.0
     usage_percent: float | None = None
     frequency_mhz: int | None = None
+    model: str | None = None
+    architecture: str | None = None
+    temperature_c: float | None = None
 
 
 class MemoryInfo(BaseModel):
@@ -36,6 +39,9 @@ class MemoryInfo(BaseModel):
     buffered_kb: int = 0
     cached_kb: int | None = None
     available_kb: int | None = None
+    swap_total_kb: int | None = None
+    swap_free_kb: int | None = None
+    swap_used_kb: int | None = None
 
 
 class TemperatureReading(BaseModel):
@@ -51,6 +57,14 @@ class StorageMount(BaseModel):
     used_bytes: int | None = None
     available_bytes: int | None = None
     use_percent: float | None = None
+    inodes_total: int | None = None
+    inodes_used: int | None = None
+    inodes_available: int | None = None
+    inode_use_percent: float | None = None
+    #: Flash wear level (erase count) when the device reports it (e.g. UBI).
+    wear: int | None = None
+    #: Best-effort media health string ("ok" / "degraded" / "unknown").
+    health: str | None = None
 
 
 class NetworkAddress(BaseModel):
@@ -67,9 +81,21 @@ class NetworkInterface(BaseModel):
     mac: str | None = None
     link: bool | None = None
     speed_mbps: int | None = None
+    mtu: int | None = None
     rx_bytes: int | None = None
     tx_bytes: int | None = None
+    is_bridge: bool = False
+    vlan_id: int | None = None
+    gateway: str | None = None
     addresses: list[NetworkAddress] = Field(default_factory=list)
+
+
+class NetworkStatus(BaseModel):
+    """Network-wide state: default gateway and configured DNS servers."""
+
+    gateway: str | None = None
+    dns: list[str] = Field(default_factory=list)
+    wan_interface: str | None = None
 
 
 class FirewallZone(BaseModel):
@@ -105,6 +131,7 @@ class WifiRadio(BaseModel):
     tx_power: int | None = None
     ssid: str | None = None
     hwmode: str | None = None
+    width_mhz: int | None = None
     station_count: int = 0
 
 
@@ -203,6 +230,17 @@ class LogInfo(BaseModel):
     entries: list[LogEntry] = Field(default_factory=list)
 
 
+class ServiceInfo(BaseModel):
+    """A system service detected on the router with its health signals."""
+
+    name: str
+    running: bool = False
+    enabled: bool = False
+    configured: bool = False
+    version: str | None = None
+    detail: str | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Snapshot                                                                    #
 # --------------------------------------------------------------------------- #
@@ -233,6 +271,7 @@ class DeviceSnapshot(BaseModel):
     temperature: list[TemperatureReading] = Field(default_factory=list)
     storage: list[StorageMount] = Field(default_factory=list)
     network: list[NetworkInterface] = Field(default_factory=list)
+    network_status: NetworkStatus | None = None
     firewall: FirewallInfo = Field(default_factory=FirewallInfo)
     wifi: WifiInfo = Field(default_factory=WifiInfo)
     clients: list[DhcpLease] = Field(default_factory=list)
@@ -241,6 +280,7 @@ class DeviceSnapshot(BaseModel):
     vpn: list[VpnTunnel] = Field(default_factory=list)
     dhcp: DhcpInfo = Field(default_factory=DhcpInfo)
     packages: list[Package] = Field(default_factory=list)
+    services: list[ServiceInfo] = Field(default_factory=list)
     kernel: KernelInfo = Field(default_factory=KernelInfo)
     logs: LogInfo = Field(default_factory=LogInfo)
     errors: list[CollectError] = Field(default_factory=list)
@@ -263,8 +303,10 @@ __all__ = [
     "MemoryInfo",
     "NetworkAddress",
     "NetworkInterface",
+    "NetworkStatus",
     "Package",
     "RouteEntry",
+    "ServiceInfo",
     "SnapshotMeta",
     "StorageMount",
     "TemperatureReading",

@@ -33,6 +33,11 @@ class MemoryCollector(Collector):
             buffered = meminfo.get("Buffers", 0)
             cached = meminfo.get("Cached", 0)
             available = meminfo.get("MemAvailable")
+            swap_total = meminfo.get("SwapTotal")
+            swap_free = meminfo.get("SwapFree")
+            swap_used = None
+            if swap_total is not None and swap_total > 0 and swap_free is not None:
+                swap_used = max(0, swap_total - swap_free)
             return MemoryInfo(
                 total_kb=total,
                 free_kb=free,
@@ -40,6 +45,9 @@ class MemoryCollector(Collector):
                 buffered_kb=buffered,
                 cached_kb=cached,
                 available_kb=available,
+                swap_total_kb=swap_total if swap_total and swap_total > 0 else None,
+                swap_free_kb=swap_free if swap_total and swap_total > 0 else None,
+                swap_used_kb=swap_used,
             )
 
         info = {}

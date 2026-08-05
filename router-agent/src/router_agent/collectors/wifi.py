@@ -7,8 +7,14 @@ associated station clients.
 
 from __future__ import annotations
 
+import re
+
 from router_agent.collectors.base import Collector, CollectorContext
 from router_agent.model import WifiClient, WifiInfo, WifiRadio
+
+_WIDTH = re.compile(r"(20|40|80|160|320)")
+
+_KNOWN_WIDTHS = {20: 20, 40: 40, 80: 80, 160: 160, 320: 320}
 
 
 def _band(hwmode: str | None, frequency: int | None) -> str | None:
@@ -22,6 +28,22 @@ def _band(hwmode: str | None, frequency: int | None) -> str | None:
             return "2.4GHz"
         if "ax" in mode or "ac" in mode:
             return "unknown"
+    return None
+
+
+def _width_mhz(htmode: str | None, hwmode: str | None) -> int | None:
+    """Derive the channel width in MHz from the HT/VHT/HE/EHT mode.
+
+    ``htmode`` values look like ``HT40``, ``VHT80``, ``HE160`` or ``EHT320``;
+    the numeric part is the width in MHz.
+    """
+    if not htmode:
+        if hwmode and "n" in hwmode.lower():
+            return 20
+        return None
+    match = _WIDTH.search(htmode)
+    if match:
+        return _KNOWN_WIDTHS.get(int(match.group(1)))
     return None
 
 
@@ -49,6 +71,7 @@ class WifiCollector(Collector):
                     break
 
             hwmode = config.get("hwmode")
+            htmode = config.get("htmode")
             frequency = None
             freq = config.get("frequency")
             if freq:
@@ -73,6 +96,7 @@ class WifiCollector(Collector):
                     tx_power=int(tx_power) if tx_power else None,
                     ssid=ssid,
                     hwmode=hwmode,
+                    width_mhz=_width_mhz(htmode, hwmode),
                     station_count=station_count,
                 )
             )

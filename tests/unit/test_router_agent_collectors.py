@@ -15,6 +15,7 @@ from router_agent.collectors.memory import MemoryCollector
 from router_agent.collectors.network import NetworkCollector
 from router_agent.collectors.packages import PackagesCollector
 from router_agent.collectors.routing import RoutingCollector
+from router_agent.collectors.services import ServicesCollector
 from router_agent.collectors.storage import StorageCollector
 from router_agent.collectors.temperature import TemperatureCollector
 from router_agent.collectors.vpn import VpnCollector
@@ -99,20 +100,31 @@ def test_temperature_collector_empty() -> None:
 def test_storage_collector() -> None:
     ctx = make_context(
         {
-            "df -kP": (
-                "Filesystem     1024-blocks      Used Available Capacity Mounted on\n"
-                "ubi0:rootfs         65536     30000     35000      47% /\n"
-                "/dev/sda1         1000000    200000    800000      21% /overlay\n"
-            )
+            "df -kPT": (
+                "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+                "ubi0:rootfs    ubifs      65536   30000      35000      47% /\n"
+                "/dev/sda1      ext4     1000000  200000    800000      21% /overlay\n"
+            ),
+            "df -i": (
+                "Filesystem      Inodes IUsed IFree IUse% Mounted on\n"
+                "ubi0:rootfs      65536 30000 35536    46% /\n"
+                "/dev/sda1       262144 20000 242144     8% /overlay\n"
+            ),
         }
     )
     mounts = StorageCollector().collect(ctx)
     assert len(mounts) == 2
     root = mounts[0]
     assert root.mountpoint == "/"
+    assert root.filesystem == "ubifs"
     assert root.total_bytes == 65536 * 1024
     assert root.use_percent == 47.0
+    assert root.inode_use_percent == 46.0
+    assert root.inodes_used == 30000
+    assert root.health == "ok"
     assert mounts[1].mountpoint == "/overlay"
+    assert mounts[1].filesystem == "ext4"
+    assert mounts[1].health is None
 
 
 def test_network_collector_from_ubus() -> None:
@@ -438,3 +450,196 @@ def test_logs_collector_parses_syslog_lines() -> None:
     assert first.message == "wlan0: new STA"
     assert first.timestamp == "Mon Aug  1 23:04:41 2026"
     assert info.entries[2].message == "bare line without a timestamp"
+
+
+def test_cpu_collector_captures_model_arch_and_temperature() -> None:
+    ctx = make_context(
+        {
+            "ubus call system info": json.dumps({"load_1": 0.4, "load_5": 0.3, "load_15": 0.2}),
+            "cat /proc/cpuinfo": (
+                "processor : 0\n"
+                "model name : Intel(R) Celeron(R) N5105\n"
+                "processor : 1\n"
+                "model name : Intel(R) Celeron(R) N5105\n"
+            ),
+            "ls /sys/class/thermal/": "thermal_zone0\n",
+            "cat /sys/class/thermal/thermal_zone0/temp": "52000",
+        }
+    )
+    cpu = CpuCollector().collect(ctx)
+    assert cpu.cores == 2
+    assert cpu.model == "Intel(R) Celeron(R) N5105"
+    assert cpu.temperature_c == 52.0
+
+
+def test_cpu_collector_architecture_from_kernel_state() -> None:
+    ctx = make_context({"cat /proc/loadavg": "0.1 0.1 0.1 1/1 1"})
+    ctx.state["kernel"] = type("K", (), {"architecture": "aarch64"})()
+    cpu = CpuCollector().collect(ctx)
+    assert cpu.architecture == "aarch64"
+
+
+def test_memory_collector_reports_swap() -> None:
+    ctx = make_context(
+        {
+            "cat /proc/meminfo": (
+                "MemTotal:       500000 kB\n"
+                "MemFree:        100000 kB\n"
+                "SwapTotal:      200000 kB\n"
+                "SwapFree:       150000 kB\n"
+            )
+        }
+    )
+    memory = MemoryCollector().collect(ctx)
+    assert memory.swap_total_kb == 200000
+    assert memory.swap_free_kb == 150000
+    assert memory.swap_used_kb == 50000
+
+
+def test_memory_collector_no_swap() -> None:
+    ctx = make_context(
+        {
+            "cat /proc/meminfo": (
+                "MemTotal:       500000 kB\n"
+                "MemFree:        100000 kB\n"
+                "SwapTotal:      0 kB\n"
+                "SwapFree:       0 kB\n"
+            )
+        }
+    )
+    memory = MemoryCollector().collect(ctx)
+    assert memory.swap_total_kb is None
+    assert memory.swap_used_kb is None
+
+
+def test_network_collector_detects_bridge_vlan_mtu_and_gateway() -> None:
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan",
+                            "addresses": [{"address": "192.168.1.1", "mask": 24}],
+                        },
+                        {
+                            "interface": "lan.20",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan.20",
+                            "addresses": [{"address": "10.0.20.1", "mask": 24}],
+                        },
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0",
+                            "addresses": [{"address": "203.0.113.10", "mask": 24}],
+                        },
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(
+                {
+                    "device": {
+                        "br-lan": {"up": True, "link": True, "mtu": 1500},
+                        "br-lan.20": {"up": True, "link": True, "mtu": 1500},
+                        "eth0": {"up": True, "link": True, "mtu": 1500},
+                    }
+                }
+            ),
+            "ip -o route show default": (
+                "default via 203.0.113.1 dev eth0 proto static metric 100\n"
+            ),
+            "cat /etc/resolv.conf /tmp/resolv.conf.d/*.conf": (
+                "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+            ),
+        }
+    )
+    network = NetworkCollector().collect(ctx)
+    lan = next(i for i in network if i.name == "lan")
+    vlan = next(i for i in network if i.name == "lan.20")
+    wan = next(i for i in network if i.name == "wan")
+    assert lan.is_bridge is True
+    assert lan.mtu == 1500
+    assert vlan.vlan_id == 20
+    assert lan.gateway is None
+    assert wan.gateway == "203.0.113.1"
+    assert ctx.state["network_status"]["gateway"] == "203.0.113.1"
+    assert ctx.state["network_status"]["dns"] == ["1.1.1.1", "8.8.8.8"]
+    assert ctx.state["network_status"]["wan_interface"] == "eth0"
+
+
+def test_wifi_collector_reports_channel_width() -> None:
+    ctx = make_context(
+        {
+            "ubus call wifi status": json.dumps(
+                {
+                    "radio0": {
+                        "up": True,
+                        "config": {
+                            "hwmode": "11ax",
+                            "htmode": "HE80",
+                            "channel": "36",
+                            "frequency": "5180",
+                        },
+                        "interfaces": [{"config": {"ssid": "Foo"}}],
+                        "stations": {},
+                    }
+                }
+            )
+        }
+    )
+    wifi = WifiCollector().collect(ctx)
+    assert wifi.radios[0].width_mhz == 80
+
+
+def test_packages_collector_falls_back_to_opkg() -> None:
+    ctx = make_context(
+        {"opkg list-installed": "base-files - 258-r26317-80e097e2a7 - Base filesystem\n"}
+    )
+    packages = PackagesCollector().collect(ctx)
+    assert packages[0].name == "base-files"
+    assert packages[0].version == "258-r26317-80e097e2a7"
+
+
+def test_packages_collector_uses_apk_when_present() -> None:
+    ctx = make_context(
+        {
+            "command -v apk": "/usr/bin/apk\n",
+            "apk list --installed": ("base-files-258-r0\nluci-1:25.0.0\nlibcurl-8.10.1-r0\n"),
+        }
+    )
+    packages = PackagesCollector().collect(ctx)
+    names = {p.name for p in packages}
+    assert names == {"base-files", "luci", "libcurl"}
+    assert next(p for p in packages if p.name == "libcurl").version == "8.10.1-r0"
+
+
+def test_services_collector_detects_running_enabled_configured() -> None:
+    ctx = make_context(
+        {
+            "nft list ruleset 2>/dev/null": "table inet fw4\n",
+            "/etc/init.d/firewall enabled 2>/dev/null": "/etc/rc.d/S19firewall\n",
+            "uci show firewall 2>/dev/null": "firewall.@defaults[0]=defaults\n",
+            "pgrep -x dnsmasq 2>/dev/null": "1234\n",
+            "/etc/init.d/dnsmasq enabled 2>/dev/null": "/etc/rc.d/S50dnsmasq\n",
+            "uci show dhcp 2>/dev/null": "dhcp.dnsmasq=dnsmasq\n",
+            "pgrep -x dropbear 2>/dev/null": "",
+            "/etc/init.d/dropbear enabled 2>/dev/null": "/etc/rc.d/S45dropbear\n",
+            "uci show dropbear 2>/dev/null": "dropbear.@dropbear[0]=dropbear\n",
+        }
+    )
+    services = {s.name: s for s in ServicesCollector().collect(ctx)}
+    assert services["firewall"].running is True
+    assert services["firewall"].enabled is True
+    assert services["firewall"].configured is True
+    assert services["dnsmasq"].running is True
+    assert services["dnsmasq"].configured is True
+    assert services["dropbear"].running is False
+    assert services["dropbear"].configured is True
+    # Unconfigured service reports as not configured.
+    assert services["tailscale"].configured is False

@@ -88,9 +88,7 @@ def _parse_release_description(text: str) -> str | None:
     return None
 
 
-def _collect_snapshot(
-    transport: SSHTransport, host: str, device_id: str
-) -> DeviceSnapshot:
+def _collect_snapshot(transport: SSHTransport, host: str, device_id: str) -> DeviceSnapshot:
     """Build a real snapshot reusing the router-agent collectors.
 
     Only the sections the onboarding wizard renders are collected so a single

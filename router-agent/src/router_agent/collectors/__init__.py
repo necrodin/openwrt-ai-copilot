@@ -18,6 +18,7 @@ from router_agent.collectors.memory import MemoryCollector
 from router_agent.collectors.network import NetworkCollector
 from router_agent.collectors.packages import PackagesCollector
 from router_agent.collectors.routing import RoutingCollector
+from router_agent.collectors.services import ServicesCollector
 from router_agent.collectors.storage import StorageCollector
 from router_agent.collectors.temperature import TemperatureCollector
 from router_agent.collectors.vpn import VpnCollector
@@ -40,6 +41,7 @@ ALL_COLLECTORS: dict[str, type[Collector]] = {
         DhcpCollector,
         PackagesCollector,
         KernelCollector,
+        ServicesCollector,
         LogsCollector,
     )
 }

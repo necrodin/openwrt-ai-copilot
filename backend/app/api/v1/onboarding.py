@@ -42,9 +42,7 @@ def _credentials(payload: RouterTestRequest) -> dict:
 async def test_connection(payload: RouterTestRequest) -> dict:
     """Try an SSH connection and report whether the device answers."""
     try:
-        return await asyncio.to_thread(
-            onboarding_service.probe_connection, **_credentials(payload)
-        )
+        return await asyncio.to_thread(onboarding_service.probe_connection, **_credentials(payload))
     except Exception as exc:  # noqa: BLE001 - report friendly errors to the UI
         return {"ok": False, "error": onboarding_service.friendly_error(exc)}
 
@@ -53,9 +51,7 @@ async def test_connection(payload: RouterTestRequest) -> dict:
 async def detect(payload: RouterTestRequest) -> dict:
     """Connect and identify the OpenWrt device (model, firmware, hostname)."""
     try:
-        return await asyncio.to_thread(
-            onboarding_service.detect_device, **_credentials(payload)
-        )
+        return await asyncio.to_thread(onboarding_service.detect_device, **_credentials(payload))
     except onboarding_service.DeviceDetectionError as exc:
         return {"ok": False, "error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - report friendly errors to the UI

@@ -35,8 +35,10 @@ FULL_SCRIPTS = {
     "ls /sys/class/thermal/": "thermal_zone0\n",
     "cat /sys/class/thermal/thermal_zone0/temp": "45000",
     "cat /sys/class/thermal/thermal_zone0/type": "cpu",
-    "df -kP": "Filesystem     1024-blocks      Used Available Capacity Mounted on\n"
-    "ubi0:rootfs       32768     10000     22000      31% /\n",
+    "df -kPT": "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+    "ubi0:rootfs     ubifs     32768     10000      22000      31% /\n",
+    "df -i": "Filesystem      Inodes IUsed IFree IUse% Mounted on\n"
+    "ubi0:rootfs      32768  1500 31268     5% /\n",
     "ubus call network.interface dump": json.dumps(
         {
             "interface": [
@@ -112,7 +114,7 @@ def test_snapshot_one_normalized_json() -> None:
     assert data["meta"]["board"] == "x86/64"
     assert data["meta"]["firmware"] == "SNAPSHOT"
     assert data["meta"]["collectors_run"] == list(COLLECTOR_NAMES)
-    assert len(data["meta"]["collectors_run"]) == 15
+    assert len(data["meta"]["collectors_run"]) == 16
     assert data["errors"] == []
 
     assert data["cpu"]["load_1"] == 0.25
