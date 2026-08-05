@@ -3,13 +3,50 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { SITE_CONFIG } from "@/lib/site-config";
 
 export const metadata: Metadata = {
-  title: "OpenWrt AI Copilot",
-  description:
-    "Provider-independent AI copilot for managing OpenWrt router fleets.",
+  metadataBase: new URL(SITE_CONFIG.appUrl),
+  title: {
+    default: SITE_CONFIG.name,
+    template: `%s · ${SITE_CONFIG.name}`,
+  },
+  description: SITE_CONFIG.description,
+  applicationName: SITE_CONFIG.name,
+  authors: [{ name: SITE_CONFIG.author }],
+  keywords: [
+    "OpenWrt",
+    "router",
+    "AI",
+    "copilot",
+    "telemetry",
+    "network",
+    "LLM",
+  ],
   icons: {
     icon: "/favicon.svg",
+    apple: "/app-icon.svg",
+  },
+  manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: SITE_CONFIG.name,
+    description: SITE_CONFIG.tagline,
+    type: "website",
+    siteName: SITE_CONFIG.name,
+    images: [
+      {
+        url: "/logo.svg",
+        width: 64,
+        height: 64,
+        alt: SITE_CONFIG.name,
+      },
+    ],
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_CONFIG.name,
+    description: SITE_CONFIG.tagline,
+    images: ["/logo.svg"],
   },
 };
 

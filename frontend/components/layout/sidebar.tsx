@@ -18,7 +18,10 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { Logo } from "@/components/ui/logo";
+import { SidebarOpenSource } from "@/components/layout/sidebar-open-source";
 import { cn } from "@/lib/utils";
+import { SITE_CONFIG } from "@/lib/site-config";
 
 export type NavItem = {
   href: string;
@@ -56,16 +59,22 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     >
       <div
         className={cn(
-          "flex h-14 shrink-0 items-center gap-2 border-b",
-          collapsed ? "justify-center px-0" : "px-4",
+          "flex h-14 shrink-0 items-center border-b",
+          collapsed ? "justify-center px-0" : "gap-2 px-4",
         )}
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-          <Router className="size-4" aria-hidden />
-        </span>
-        {!collapsed ? (
-          <span className="truncate text-sm font-semibold">OpenWrt Copilot</span>
-        ) : null}
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-2 overflow-hidden"
+          aria-label={SITE_CONFIG.name}
+        >
+          <Logo
+            withText={!collapsed}
+            name={SITE_CONFIG.name}
+            responsive
+            ariaHiddenText
+          />
+        </Link>
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
@@ -94,6 +103,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           );
         })}
       </nav>
+
+      <SidebarOpenSource collapsed={collapsed} />
 
       <div className="border-t p-2">
         <button

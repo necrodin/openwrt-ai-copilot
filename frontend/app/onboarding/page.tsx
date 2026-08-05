@@ -3,13 +3,14 @@
 import {
   CheckCircle2,
   Loader2,
-  Router,
   Wifi,
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Footer } from "@/components/layout/footer";
+import { Logo } from "@/components/ui/logo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -195,7 +196,7 @@ function WelcomeView({ onStart }: { onStart: () => void }) {
   return (
     <div className="flex flex-col items-center gap-6 text-center">
       <span className="flex size-16 items-center justify-center rounded-2xl border bg-muted">
-        <Router className="size-8" aria-hidden />
+        <Logo className="size-8" />
       </span>
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">
@@ -472,17 +473,21 @@ export default function OnboardingPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col items-center justify-center gap-6 p-6">
-        <Skeleton className="size-16 rounded-2xl" />
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-4 w-full max-w-md" />
-        <Skeleton className="h-10 w-40" />
+      <main className="flex min-h-screen flex-col">
+        <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center justify-center gap-6 p-6">
+          <Skeleton className="size-16 rounded-2xl" />
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-4 w-full max-w-md" />
+          <Skeleton className="h-10 w-40" />
+        </div>
+        <Footer />
       </main>
     );
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center gap-6 p-6">
+    <main className="flex min-h-screen flex-col">
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center gap-6 p-6">
       {view === "welcome" ? (
         <WelcomeView onStart={() => setView("form")} />
       ) : null}
@@ -491,7 +496,7 @@ export default function OnboardingPage() {
         <div className="space-y-6">
           <header className="space-y-1 text-center">
             <h1 className="flex items-center justify-center gap-2 text-2xl font-bold tracking-tight">
-              <Router className="size-6" aria-hidden />
+              <Logo className="size-6" />
               Connect your router
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -555,11 +560,11 @@ export default function OnboardingPage() {
         </div>
       ) : null}
 
-      <footer className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <span>
-          Credentials are stored on this device and never shown again.
-        </span>
-      </footer>
+      <p className="text-center text-sm text-muted-foreground">
+        Credentials are stored on this device and never shown again.
+      </p>
+      </div>
+      <Footer />
     </main>
   );
 }

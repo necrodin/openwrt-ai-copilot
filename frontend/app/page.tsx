@@ -4,7 +4,9 @@ import { Loader2, Router } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Footer } from "@/components/layout/footer";
 import { HealthStatus } from "@/components/health-status";
+import { Logo } from "@/components/ui/logo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,13 +57,15 @@ export default function Home() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-10 p-8">
-      <div className="space-y-3 text-center">
-        <h1 className="text-4xl font-bold tracking-tight">OpenWrt AI Copilot</h1>
-        <p className="text-muted-foreground">
-          Provider-independent AI copilot for OpenWrt networks.
-        </p>
-      </div>
+    <main className="flex min-h-screen flex-col">
+      <div className="flex flex-1 flex-col items-center justify-center gap-10 p-8">
+        <div className="space-y-4 text-center">
+          <Logo className="justify-center" withText responsive />
+          <h1 className="sr-only">OpenWrt AI Copilot</h1>
+          <p className="mx-auto max-w-xl text-muted-foreground">
+            Provider-independent AI copilot for OpenWrt networks.
+          </p>
+        </div>
 
       <Card className="w-full max-w-sm">
         <CardHeader>
@@ -136,6 +140,8 @@ export default function Home() {
           About OpenWrt
         </a>
       </Button>
+      </div>
+      <Footer />
     </main>
   );
 }

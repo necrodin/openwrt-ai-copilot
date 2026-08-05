@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
+import { Footer } from "@/components/layout/footer";
 
 /**
  * Persistent NOC-style shell: collapsible left sidebar (desktop), a drawer
@@ -41,6 +42,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onMenuClick={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-y-auto">{children}</main>
+        <Footer />
       </div>
     </div>
   );

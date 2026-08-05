@@ -1,5 +1,18 @@
 # OpenWrt AI Copilot
 
+<p align="center">
+  <img src="assets/banner.svg" alt="OpenWrt AI Copilot banner" width="640" />
+</p>
+
+<p align="center">
+  <a href="https://opensource.org/licenses/MIT"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-blue.svg" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.x-blue.svg" />
+  <a href="https://nextjs.org"><img alt="Next.js" src="https://img.shields.io/badge/UI-Next.js-black.svg" /></a>
+  <a href="https://fastapi.tiangolo.com"><img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-teal.svg" /></a>
+  <a href="https://github.com/necrodin/openwrt-ai-copilot"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-necrodin%2Fopenwrt--ai--copilot-181717.svg?logo=github" /></a>
+</p>
+
 A production-grade, provider-independent AI copilot for managing OpenWrt router
 fleets. Ask questions about your network in natural language, diagnose
 connectivity issues, and — under strict human approval — propose and apply
@@ -9,6 +22,22 @@ validated configuration changes.
 NVIDIA NIM, OpenAI, OpenRouter, LM Studio, vLLM) are interchangeable adapters,
 never hard dependencies. Swapping Ollama for OpenAI is a config change, not a
 code change.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/placeholder.svg" alt="Dashboard screenshot (placeholder)" width="640" />
+</p>
+
+> Screenshots are placeholders and will be replaced as the UI stabilizes.
+
+## Architecture
+
+<p align="center">
+  <img src="assets/architecture/placeholder.svg" alt="Architecture diagram (placeholder)" width="640" />
+</p>
+
+> The full architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## What's in v1.0
 
@@ -149,4 +178,5 @@ docker compose -f docker/docker-compose.yml up --build
 
 ## License
 
-Open-source. TBD.
+Open-source. MIT License — see [LICENSE](LICENSE). Free forever: no
+subscriptions, no licenses, no payments inside the application.

@@ -12,3 +12,4 @@
 | [SPRINT-8.md](SPRINT-8.md) | Sprint 8: provider-independent knowledge platform. |
 | [SPRINT-9A.md](SPRINT-9A.md) | Sprint 9A: provider-independent retrieval core (retrieval, context, prompt, memory, tokens, cache). |
 | [SPRINT-9B.md](SPRINT-9B.md) | Sprint 9B: retrieval engine → AI chat integration (grounded, cited, streaming RAG). |
+| [SPRINT-29.md](SPRINT-29.md) | Sprint 29: open source identity and project branding (logo, footer, About, Support, MIT license, version system). |

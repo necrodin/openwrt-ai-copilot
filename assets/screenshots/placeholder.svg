@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500" role="img" aria-label="Dashboard screenshot placeholder">
+  <rect width="800" height="500" rx="8" fill="#0f172a"/>
+  <text x="400" y="240" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" fill="#64748b" text-anchor="middle">Dashboard Preview</text>
+  <text x="400" y="280" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#475569" text-anchor="middle">Screenshot coming soon</text>
+  <rect x="100" y="100" width="600" height="300" rx="8" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="8 4"/>
+</svg>
