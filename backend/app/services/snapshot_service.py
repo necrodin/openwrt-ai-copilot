@@ -112,6 +112,16 @@ class SnapshotService:
     def source(self) -> Source:
         return self._source
 
+    @property
+    def active_connection(self) -> RouterConnection | None:
+        """Return the currently configured router connection, if any.
+
+        Exposed for the router management layer so destructive/administrative
+        operations (packages, logs, actions, backup) reuse the same credentials
+        as the live snapshot feed.
+        """
+        return self._connection
+
     def latest(self) -> DashboardUpdate | None:
         return self._latest
 

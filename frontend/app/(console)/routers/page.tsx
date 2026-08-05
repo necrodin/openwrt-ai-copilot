@@ -15,9 +15,9 @@ import { useEffect, useState } from "react";
 import { DiagnosticsChecks } from "@/components/router/diagnostics-checks";
 import { ManagementActionsPanel } from "@/components/router/management-actions-panel";
 import { RouterOverviewWidget } from "@/components/router/overview-widget";
-import { PackagesPanel, type RouterPackage } from "@/components/router/packages-panel";
+import { PackagesPanel } from "@/components/router/packages-panel";
 import { SectionTabs, type SectionTab } from "@/components/router/section-tabs";
-import { SystemLogsPanel, type LogEntry } from "@/components/router/system-logs-panel";
+import { SystemLogsPanel } from "@/components/router/system-logs-panel";
 import { CpuWidget } from "@/components/dashboard/cpu-widget";
 import { DiagnosisWidget } from "@/components/dashboard/diagnosis-widget";
 import { HealthScoreWidget } from "@/components/dashboard/health-score-widget";
@@ -141,9 +141,6 @@ export default function RoutersPage() {
   const findings = routerStatus.data?.diagnosis ?? [];
   const recommendations = routerStatus.data?.recommendations ?? [];
 
-  const packages = (snapshot?.packages ?? []) as RouterPackage[];
-  const logs = (snapshot?.logs as LogEntry[] | null | undefined) ?? [];
-
   return (
     <div className="min-w-0 flex-1 space-y-4 p-4 lg:p-6">
       <header className="space-y-3">
@@ -217,13 +214,13 @@ export default function RoutersPage() {
 
         {activeTab === "packages" ? (
           <WidgetGrid className="xl:grid-cols-1">
-            <PackagesPanel packages={packages} loading={widgetLoading} error={widgetError} />
+            <PackagesPanel />
           </WidgetGrid>
         ) : null}
 
         {activeTab === "logs" ? (
           <WidgetGrid className="xl:grid-cols-1">
-            <SystemLogsPanel lines={logs} loading={widgetLoading} error={widgetError} />
+            <SystemLogsPanel />
           </WidgetGrid>
         ) : null}
 

@@ -19,6 +19,7 @@ from app.db.router_store import store as router_store
 from app.services.chat_service import ChatService
 from app.services.provider_manager import load_provider_manager
 from app.services.rag_service import load_rag_service
+from app.services.router_management import RouterManagementService
 from app.services.router_manager import RouterManager
 from app.services.router_tool import RouterTool
 from app.services.snapshot_service import RouterConnection, SnapshotService
@@ -47,6 +48,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         )
     application.state.snapshot_service = snapshot_service
     snapshot_service.start()
+    application.state.management_service = RouterManagementService(
+        resolve_connection=lambda: application.state.snapshot_service.active_connection,
+    )
     application.state.chat_store = chat_store
     router_manager = RouterManager()
     router_manager.register("default", RouterTool(snapshot_service.latest), default=True)
