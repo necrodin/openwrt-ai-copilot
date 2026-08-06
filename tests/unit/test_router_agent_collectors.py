@@ -312,6 +312,98 @@ def test_wifi_collector() -> None:
     assert wifi.clients[0].connected_minutes == 300
 
 
+def test_wifi_collector_ssids_and_stations() -> None:
+    ctx = make_context(
+        {
+            "ubus call wifi status": json.dumps(
+                {
+                    "radio0": {
+                        "up": True,
+                        "config": {
+                            "hwmode": "11ax",
+                            "channel": "36",
+                            "txpower": "17",
+                            "frequency": "5180",
+                            "device": "radio0",
+                        },
+                        "interfaces": [
+                            {"config": {"device": "radio0", "ssid": "Home", "ifname": "phy0-ap0"}}
+                        ],
+                        "stations": {
+                            "11:22:33:44:55:66": {
+                                "signal": -48,
+                                "noise": -96,
+                                "txbytes": 100,
+                                "rxbytes": 200,
+                                "tx_rate": 180000000,
+                                "rx_rate": 390000000,
+                                "connected_time": 300,
+                            },
+                            "aa:bb:cc:dd:ee:ff": {
+                                "signal": -62,
+                                "noise": -96,
+                                "txbytes": 50,
+                                "rxbytes": 90,
+                                "connected_time": 120,
+                            },
+                        },
+                    }
+                }
+            ),
+            "uci show wireless": (
+                "wireless=wireless\n"
+                "wireless.radio0=wifi-device\n"
+                "wireless.radio0.type='mac80211'\n"
+                "wireless.radio0.path='1e140000.pcie'\n"
+                "wireless.radio0.country='DE'\n"
+                "wireless.radio0.htmode='VHT80'\n"
+                "wireless.radio0.hwmode='11a'\n"
+                "wireless.radio0.channel='36'\n"
+                "wireless.radio0.txpower='17'\n"
+                "wireless.home=wifi-iface\n"
+                "wireless.home.device='radio0'\n"
+                "wireless.home.network='lan'\n"
+                "wireless.home.mode='ap'\n"
+                "wireless.home.ssid='Home'\n"
+                "wireless.home.encryption='psk2'\n"
+                "wireless.guest=wifi-iface\n"
+                "wireless.guest.device='radio0'\n"
+                "wireless.guest.network='guest'\n"
+                "wireless.guest.mode='ap'\n"
+                "wireless.guest.ssid='Guest'\n"
+                "wireless.guest.disabled='1'\n"
+            ),
+            "iw dev phy0-ap0 station dump 2>/dev/null": (
+                "Station 11:22:33:44:55:66 (on phy0-ap0)\nStation aa:bb:cc:dd:ee:ff (on phy0-ap0)\n"
+            ),
+        }
+    )
+    wifi = WifiCollector().collect(ctx)
+    assert wifi.radios[0].country == "DE"
+    assert wifi.radios[0].hardware == "1e140000.pcie"
+    assert wifi.radios[0].channel == 36
+    assert wifi.radios[0].width_mhz == 80
+    assert wifi.radios[0].band == "5GHz"
+
+    by_ssid = {net.ssid: net for net in wifi.networks}
+    assert set(by_ssid) == {"Home", "Guest"}
+    assert by_ssid["Home"].interface == "phy0-ap0"
+    assert by_ssid["Home"].enabled is True
+    assert by_ssid["Home"].client_count == 2
+    assert by_ssid["Home"].encryption == "psk2"
+    assert by_ssid["Guest"].enabled is False
+    assert by_ssid["Guest"].client_count == 0
+    assert by_ssid["Guest"].section == "guest"
+
+    assert len(wifi.clients) == 2
+    client = next(c for c in wifi.clients if c.mac == "11:22:33:44:55:66")
+    assert client.noise == -96
+    assert client.rx_rate == 390000000
+    assert client.tx_rate == 180000000
+    assert client.connected_time == 300
+    assert client.interface == "phy0-ap0"
+
+
 def test_clients_collector() -> None:
     ctx = make_context(
         {

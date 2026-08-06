@@ -29,6 +29,7 @@ export type ManagementJobRunner = {
   error: string | null;
   runAction: (action: string) => Promise<ManagementJob>;
   runFirewallToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
+  runWirelessToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
   stageRestore: (file: File) => Promise<ManagementJob>;
@@ -124,6 +125,12 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runWirelessToggle = useCallback(
+    (section: string, enabled: boolean) =>
+      begin({ kind: "wireless", section, enabled, confirmed: true }, true),
+    [begin],
+  );
+
   const createBackup = useCallback(() => begin({ kind: "backup", confirmed: false }, true), [begin]);
 
   const createBundle = useCallback(() => begin({ kind: "bundle", confirmed: false }, true), [begin]);
@@ -201,6 +208,7 @@ export function useManagementJob(): ManagementJobRunner {
     error,
     runAction,
     runFirewallToggle,
+    runWirelessToggle,
     createBackup,
     createBundle,
     stageRestore,

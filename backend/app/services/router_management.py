@@ -55,6 +55,7 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
     "shutdown": ("poweroff || halt", _ASYNC_DISPATCH),
     "restart-network": ("/etc/init.d/network restart", False),
     "restart-wifi": ("/etc/init.d/wireless restart", False),
+    "reload-wireless": ("/etc/init.d/wireless reload", False),
     "restart-firewall": ("/etc/init.d/firewall restart", False),
     "reload-firewall": ("/etc/init.d/firewall reload", False),
     "restart-dnsmasq": ("/etc/init.d/dnsmasq restart", False),
@@ -66,6 +67,7 @@ ACTION_LABELS: dict[str, str] = {
     "shutdown": "Shutdown",
     "restart-network": "Restart Network",
     "restart-wifi": "Restart WiFi",
+    "reload-wireless": "Reload Wireless",
     "restart-firewall": "Restart Firewall",
     "reload-firewall": "Reload Firewall",
     "restart-dnsmasq": "Restart DNSMasq",
@@ -559,6 +561,60 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"Firewall rule could not be {action_label.lower()}d.",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- wireless -------------------------------------------------------- #
+
+    def toggle_wireless_ssid(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable one UCI ``wifi-iface`` section and reload wireless."""
+        if not section or not self._SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid wireless section identifier.")
+        value = "1" if not enabled else "0"
+        command = (
+            f"uci set wireless.{section}.disabled='{value}' && "
+            "uci commit wireless && /etc/init.d/wireless reload"
+        )
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            label = "Enable" if enabled else "Disable"
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "label": label,
+                    "message": f"{label} failed (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "label": label,
+                "message": f"SSID {label}d and wireless reloaded.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def run_wireless_toggle_job(
+        self,
+        job_id: str,
+        *,
+        section: str,
+        enabled: bool,
+    ) -> ManagementJob:
+        """Execute a wireless SSID enable/disable inside a tracked job."""
+        action_label = "Enable" if enabled else "Disable"
+        self._jobs.transition(job_id, "running", message=f"{action_label}ing SSID…")
+        try:
+            result = self.toggle_wireless_ssid(section=section, enabled=enabled)
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Wireless SSID toggle failed for %r", section)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"SSID could not be {action_label.lower()}d.",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 

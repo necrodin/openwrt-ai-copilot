@@ -202,6 +202,25 @@ class WifiRadio(BaseModel):
     hwmode: str | None = None
     width_mhz: int | None = None
     station_count: int = 0
+    #: Regulatory country code from the UCI radio config (e.g. ``US``).
+    country: str | None = None
+    #: Hardware identifier (e.g. the ACPI/platform path the radio is on).
+    hardware: str | None = None
+
+
+class WifiNetwork(BaseModel):
+    """A configured wireless network (SSID / ``wifi-iface`` section)."""
+
+    ssid: str
+    radio: str
+    interface: str | None = None
+    mode: str | None = None
+    encryption: str | None = None
+    hidden: bool = False
+    enabled: bool = True
+    network: str | None = None
+    client_count: int = 0
+    section: str = ""
 
 
 class WifiClient(BaseModel):
@@ -211,10 +230,18 @@ class WifiClient(BaseModel):
     tx_bytes: int | None = None
     rx_bytes: int | None = None
     connected_minutes: int | None = None
+    #: Station signal-to-noise ratio and bitrates as reported by hostapd.
+    noise: int | None = None
+    rx_rate: int | None = None
+    tx_rate: int | None = None
+    interface: str | None = None
+    #: Association age in seconds.
+    connected_time: int | None = None
 
 
 class WifiInfo(BaseModel):
     radios: list[WifiRadio] = Field(default_factory=list)
+    networks: list[WifiNetwork] = Field(default_factory=list)
     clients: list[WifiClient] = Field(default_factory=list)
 
 
@@ -403,5 +430,6 @@ __all__ = [
     "VpnTunnel",
     "WifiClient",
     "WifiInfo",
+    "WifiNetwork",
     "WifiRadio",
 ]

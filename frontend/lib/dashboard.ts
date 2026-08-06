@@ -179,6 +179,21 @@ export type WifiRadio = {
   hwmode: string | null;
   width_mhz: number | null;
   station_count: number;
+  country: string | null;
+  hardware: string | null;
+};
+
+export type WifiNetwork = {
+  ssid: string;
+  radio: string;
+  interface: string | null;
+  mode: string | null;
+  encryption: string | null;
+  hidden: boolean;
+  enabled: boolean;
+  network: string | null;
+  client_count: number;
+  section: string;
 };
 
 export type WifiClient = {
@@ -188,11 +203,23 @@ export type WifiClient = {
   tx_bytes: number | null;
   rx_bytes: number | null;
   connected_minutes: number | null;
+  noise: number | null;
+  rx_rate: number | null;
+  tx_rate: number | null;
+  interface: string | null;
+  connected_time: number | null;
 };
 
 export type WifiInfo = {
   radios: WifiRadio[];
+  networks: WifiNetwork[];
   clients: WifiClient[];
+};
+
+export const EMPTY_WIFI: WifiInfo = {
+  radios: [],
+  networks: [],
+  clients: [],
 };
 
 export type ArpEntry = {

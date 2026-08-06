@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["router"])
 
-JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall"}
+JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall", "wireless"}
 CONFIRMED_KINDS = {"action", "restore"}
 
 
@@ -130,6 +130,28 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_firewall_toggle_job,
+                job.id,
+                section=payload.section,
+                enabled=payload.enabled,
+            )
+        )
+        return _job_dict(job)
+
+    if payload.kind == "wireless":
+        if not payload.section:
+            raise HTTPException(status_code=422, detail="A wireless section is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to change the "
+                    "wireless network on the router."
+                ),
+            )
+        job = service.job_store.create("wireless", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_wireless_toggle_job,
                 job.id,
                 section=payload.section,
                 enabled=payload.enabled,
