@@ -517,6 +517,36 @@ def test_vpn_collector_wireguard() -> None:
     assert wg.detail["peers"][0]["endpoint"] == "203.0.113.1:51820"
 
 
+def test_vpn_collector_wireguard_runtime_enrichment() -> None:
+    ctx = make_context(
+        {
+            "wg show all interfaces": (
+                "wg0:\tpublic-key: PUBKEY\n"
+                "wg0:\tlisten-port: 51820\n"
+                "wg0:\tpeer: PEERKEY\n"
+                "wg0:\tendpoint: 203.0.113.1:51820\n"
+                "wg0:\tallowed-ips: 10.0.0.0/24, 10.0.1.0/24\n"
+            ),
+            "wg show all latest-handshakes 2>/dev/null": (
+                "wg0\tPEERKEY\t1700000000\n"
+            ),
+            "wg show all transfer 2>/dev/null": "wg0\tPEERKEY\t1000\t2000\n",
+            "wg show all persistent-keepalive 2>/dev/null": "wg0\tPEERKEY\t25\n",
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    peers = tunnels[0].detail["peers"]
+    assert peers[0]["latest_handshake"] == 1700000000
+    assert peers[0]["persistent_keepalive"] == 25
+    assert peers[0]["rx_bytes"] == 1000
+    assert peers[0]["tx_bytes"] == 2000
+    assert tunnels[0].rx_bytes == 1000
+    assert tunnels[0].tx_bytes == 2000
+    assert tunnels[0].detail["latest_handshake"] == 1700000000
+
+
 def test_vpn_collector_openvpn_config() -> None:
     ctx = make_context(
         {

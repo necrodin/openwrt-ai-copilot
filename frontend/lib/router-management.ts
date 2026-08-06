@@ -30,7 +30,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -123,6 +123,14 @@ export function toggleWirelessSsid(
   signal?: AbortSignal,
 ): Promise<ManagementJob> {
   return startJob({ kind: "wireless", section, enabled, confirmed: true }, signal);
+}
+
+export function toggleVpnInstance(
+  section: string,
+  enabled: boolean,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "vpn", section, enabled, confirmed: true }, signal);
 }
 
 export function jobArtifactUrl(jobId: string): string {

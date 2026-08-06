@@ -60,6 +60,8 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
     "reload-firewall": ("/etc/init.d/firewall reload", False),
     "restart-dnsmasq": ("/etc/init.d/dnsmasq restart", False),
     "restart-dropbear": ("/etc/init.d/dropbear restart", False),
+    "reload-vpn": ("/etc/init.d/openvpn reload", False),
+    "restart-vpn": ("/etc/init.d/openvpn restart", False),
 }
 
 ACTION_LABELS: dict[str, str] = {
@@ -72,10 +74,12 @@ ACTION_LABELS: dict[str, str] = {
     "reload-firewall": "Reload Firewall",
     "restart-dnsmasq": "Restart DNSMasq",
     "restart-dropbear": "Restart Dropbear",
+    "reload-vpn": "Reload VPN",
+    "restart-vpn": "Restart VPN",
 }
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
-JobKind = Literal["action", "backup", "bundle", "restore"]
+JobKind = Literal["action", "backup", "bundle", "restore", "firewall", "wireless", "vpn"]
 
 _EXIT_SENTINEL = "__AI_EXIT__="
 
@@ -615,6 +619,60 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"SSID could not be {action_label.lower()}d.",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- vpn --------------------------------------------------------------- #
+
+    def toggle_vpn_instance(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable one UCI ``openvpn`` instance and reload the service."""
+        if not section or not self._SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid VPN section identifier.")
+        value = "1" if enabled else "0"
+        command = (
+            f"uci set openvpn.{section}.enabled='{value}' && "
+            "uci commit openvpn && /etc/init.d/openvpn reload"
+        )
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            label = "Enable" if enabled else "Disable"
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "label": label,
+                    "message": f"{label} failed (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "label": label,
+                "message": f"VPN instance {label}d and OpenVPN reloaded.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def run_vpn_toggle_job(
+        self,
+        job_id: str,
+        *,
+        section: str,
+        enabled: bool,
+    ) -> ManagementJob:
+        """Execute an OpenVPN instance enable/disable inside a tracked job."""
+        action_label = "Enable" if enabled else "Disable"
+        self._jobs.transition(job_id, "running", message=f"{action_label}ing VPN…")
+        try:
+            result = self.toggle_vpn_instance(section=section, enabled=enabled)
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("VPN instance toggle failed for %r", section)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"VPN instance could not be {action_label.lower()}d.",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 

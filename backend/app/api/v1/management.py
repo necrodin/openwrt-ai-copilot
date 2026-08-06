@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["router"])
 
-JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall", "wireless"}
+JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall", "wireless", "vpn"}
 CONFIRMED_KINDS = {"action", "restore"}
 
 
@@ -152,6 +152,28 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_wireless_toggle_job,
+                job.id,
+                section=payload.section,
+                enabled=payload.enabled,
+            )
+        )
+        return _job_dict(job)
+
+    if payload.kind == "vpn":
+        if not payload.section:
+            raise HTTPException(status_code=422, detail="A VPN section is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to change the "
+                    "VPN instance on the router."
+                ),
+            )
+        job = service.job_store.create("vpn", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_vpn_toggle_job,
                 job.id,
                 section=payload.section,
                 enabled=payload.enabled,

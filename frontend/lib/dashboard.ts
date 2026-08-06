@@ -248,14 +248,19 @@ export type RouteEntry = {
 
 export type VpnTunnel = {
   name: string;
-  kind: "wireguard" | "openvpn" | "other";
+  kind: "wireguard" | "openvpn" | "ipsec" | "tailscale" | "zerotier" | "other";
   up: boolean;
+  enabled: boolean;
   public_key: string | null;
   listen_port: number | null;
   endpoint: string | null;
   allowed_ips: string[];
   addresses: string[];
   peer_count: number;
+  rx_bytes: number | null;
+  tx_bytes: number | null;
+  version: string | null;
+  uptime_seconds: number | null;
   detail: Record<string, unknown>;
 };
 

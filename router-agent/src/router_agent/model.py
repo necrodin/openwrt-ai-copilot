@@ -276,15 +276,28 @@ class RouteEntry(BaseModel):
 
 
 class VpnTunnel(BaseModel):
+    """A VPN tunnel or service detected on the router.
+
+    ``kind`` distinguishes the technology so consumers can render the right
+    details; ``detail`` carries technology-specific runtime data (peers, routes,
+    daemon state) whose shape follows the kind. Everything is best-effort and
+    absent technologies simply never produce an entry.
+    """
+
     name: str
-    kind: Literal["wireguard", "openvpn", "other"]
+    kind: Literal["wireguard", "openvpn", "ipsec", "tailscale", "zerotier", "other"]
     up: bool = False
+    enabled: bool = True
     public_key: str | None = None
     listen_port: int | None = None
     endpoint: str | None = None
     allowed_ips: list[str] = Field(default_factory=list)
     addresses: list[str] = Field(default_factory=list)
     peer_count: int = 0
+    rx_bytes: int | None = None
+    tx_bytes: int | None = None
+    version: str | None = None
+    uptime_seconds: int | None = None
     detail: dict = Field(default_factory=dict)
 
 
