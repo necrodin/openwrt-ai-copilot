@@ -56,6 +56,7 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
     "restart-network": ("/etc/init.d/network restart", False),
     "restart-wifi": ("/etc/init.d/wireless restart", False),
     "restart-firewall": ("/etc/init.d/firewall restart", False),
+    "reload-firewall": ("/etc/init.d/firewall reload", False),
     "restart-dnsmasq": ("/etc/init.d/dnsmasq restart", False),
     "restart-dropbear": ("/etc/init.d/dropbear restart", False),
 }
@@ -66,6 +67,7 @@ ACTION_LABELS: dict[str, str] = {
     "restart-network": "Restart Network",
     "restart-wifi": "Restart WiFi",
     "restart-firewall": "Restart Firewall",
+    "reload-firewall": "Reload Firewall",
     "restart-dnsmasq": "Restart DNSMasq",
     "restart-dropbear": "Restart Dropbear",
 }
@@ -428,8 +430,7 @@ class RouterManagementService:
         """Return the package inventory, using a short TTL cache unless refreshing."""
         now = time.monotonic()
         cached_fresh = (
-            self._packages_cache
-            and (now - self._packages_cache_at) < PACKAGE_CACHE_TTL_S
+            self._packages_cache and (now - self._packages_cache_at) < PACKAGE_CACHE_TTL_S
         )
         if not refresh and cached_fresh:
             return dict(self._packages_cache)
@@ -504,6 +505,62 @@ class RouterManagementService:
             }
         finally:
             transport.close()
+
+    # -- firewall -------------------------------------------------------- #
+
+    _SECTION_PATTERN = re.compile(r"^[A-Za-z0-9_@.\-]+$")
+
+    def toggle_firewall_rule(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable one UCI firewall section and reload the service."""
+        if not section or not self._SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid firewall section identifier.")
+        value = "1" if enabled else "0"
+        command = (
+            f"uci set firewall.{section}.enabled='{value}' && "
+            "uci commit firewall && /etc/init.d/firewall reload"
+        )
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            label = "Enable" if enabled else "Disable"
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "label": label,
+                    "message": f"{label} failed (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "label": label,
+                "message": f"Firewall rule {label}d and reloaded.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def run_firewall_toggle_job(
+        self,
+        job_id: str,
+        *,
+        section: str,
+        enabled: bool,
+    ) -> ManagementJob:
+        """Execute a firewall rule toggle inside a tracked job."""
+        action_label = "Enable" if enabled else "Disable"
+        self._jobs.transition(job_id, "running", message=f"{action_label}ing firewall rule…")
+        try:
+            result = self.toggle_firewall_rule(section=section, enabled=enabled)
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Firewall rule toggle failed for %r", section)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"Firewall rule could not be {action_label.lower()}d.",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
 
     # -- backup ------------------------------------------------------------ #
 
@@ -629,8 +686,7 @@ class RouterManagementService:
             return {
                 "ok": dispatch.ok,
                 "message": (
-                    "Restore initiated — the router will reboot with the "
-                    "uploaded configuration."
+                    "Restore initiated — the router will reboot with the uploaded configuration."
                 ),
                 "detail": dispatch.to_dict(),
                 "filename": filename,

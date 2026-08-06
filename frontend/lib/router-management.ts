@@ -30,7 +30,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -51,6 +51,8 @@ export type JobRequest = {
   confirmed?: boolean;
   filename?: string;
   content_b64?: string;
+  section?: string;
+  enabled?: boolean;
 };
 
 async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
@@ -105,6 +107,14 @@ export function confirmJob(jobId: string, signal?: AbortSignal): Promise<Managem
     { method: "POST" },
     signal,
   );
+}
+
+export function toggleFirewallRule(
+  section: string,
+  enabled: boolean,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "firewall", section, enabled, confirmed: true }, signal);
 }
 
 export function jobArtifactUrl(jobId: string): string {

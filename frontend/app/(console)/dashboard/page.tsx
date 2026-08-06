@@ -28,6 +28,7 @@ import { StatusBadge, type StatusBadgeTone } from "@/components/ui/status-badge"
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useRouterStatus } from "@/hooks/use-router-status";
 import { formatClock, sourceLabel, type ConnectionStatus } from "@/lib/dashboard-utils";
+import { EMPTY_FIREWALL } from "@/lib/dashboard";
 import { listConnections, type SavedRouter } from "@/lib/onboarding";
 
 function connectionBadge(status: ConnectionStatus): {
@@ -189,7 +190,7 @@ export default function DashboardPage() {
           <LanWidget network={snapshot?.network ?? []} loading={widgetLoading} error={widgetError} />
           <WirelessWidget wifi={snapshot?.wifi ?? { radios: [], clients: [] }} loading={widgetLoading} error={widgetError} />
           <DevicesWidget snapshot={snapshot} loading={widgetLoading} error={widgetError} />
-          <FirewallWidget firewall={snapshot?.firewall ?? { zones: [], rules: [] }} loading={widgetLoading} error={widgetError} />
+          <FirewallWidget firewall={snapshot?.firewall ?? EMPTY_FIREWALL} loading={widgetLoading} error={widgetError} />
           <VpnWidget vpn={snapshot?.vpn ?? []} loading={widgetLoading} error={widgetError} />
           <TemperatureWidget temperature={snapshot?.temperature ?? []} loading={widgetLoading} error={widgetError} />
           <InternetWidget snapshot={snapshot} loading={widgetLoading} error={widgetError} />

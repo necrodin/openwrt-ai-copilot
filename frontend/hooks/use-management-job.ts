@@ -28,6 +28,7 @@ export type ManagementJobRunner = {
   busy: boolean;
   error: string | null;
   runAction: (action: string) => Promise<ManagementJob>;
+  runFirewallToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
   stageRestore: (file: File) => Promise<ManagementJob>;
@@ -117,6 +118,12 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runFirewallToggle = useCallback(
+    (section: string, enabled: boolean) =>
+      begin({ kind: "firewall", section, enabled, confirmed: true }, true),
+    [begin],
+  );
+
   const createBackup = useCallback(() => begin({ kind: "backup", confirmed: false }, true), [begin]);
 
   const createBundle = useCallback(() => begin({ kind: "bundle", confirmed: false }, true), [begin]);
@@ -193,6 +200,7 @@ export function useManagementJob(): ManagementJobRunner {
     busy,
     error,
     runAction,
+    runFirewallToggle,
     createBackup,
     createBundle,
     stageRestore,

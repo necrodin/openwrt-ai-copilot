@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["router"])
 
-JOB_KINDS = {"action", "backup", "bundle", "restore"}
+JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall"}
 CONFIRMED_KINDS = {"action", "restore"}
 
 
@@ -46,6 +46,8 @@ class ManagementJobRequest(BaseModel):
     confirmed: bool = False
     filename: str | None = Field(default=None, max_length=255)
     content_b64: str | None = Field(default=None, max_length=64_000_000)
+    section: str | None = Field(default=None, max_length=128)
+    enabled: bool = False
 
 
 def _service(request: Request) -> RouterManagementService:
@@ -111,6 +113,28 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
     if payload.kind == "backup":
         job = service.job_store.create("backup", message="Queued")
         asyncio.create_task(asyncio.to_thread(service.run_backup_job, job.id))
+        return _job_dict(job)
+
+    if payload.kind == "firewall":
+        if not payload.section:
+            raise HTTPException(status_code=422, detail="A firewall section is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to change the "
+                    "firewall rule on the router."
+                ),
+            )
+        job = service.job_store.create("firewall", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_firewall_toggle_job,
+                job.id,
+                section=payload.section,
+                enabled=payload.enabled,
+            )
+        )
         return _job_dict(job)
 
     if payload.kind == "bundle":

@@ -199,27 +199,80 @@ def test_firewall_collector() -> None:
     ctx = make_context(
         {
             "uci show firewall": (
+                "firewall.@defaults[0]=defaults\n"
+                "firewall.@defaults[0].input='REJECT'\n"
+                "firewall.@defaults[0].output='ACCEPT'\n"
+                "firewall.@defaults[0].forward='REJECT'\n"
+                "firewall.@defaults[0].masq='1'\n"
+                "firewall.@defaults[0].synflood_protect='1'\n"
                 "firewall.@zone[0]=zone\n"
                 "firewall.@zone[0].name='lan'\n"
                 "firewall.@zone[0].input='ACCEPT'\n"
                 "firewall.@zone[0].output='ACCEPT'\n"
                 "firewall.@zone[0].forward='ACCEPT'\n"
                 "firewall.@zone[0].masq='1'\n"
+                "firewall.@zone[0].mtu_fix='1'\n"
+                "firewall.@zone[0].network='lan'\n"
+                "firewall.@zone[1]=zone\n"
+                "firewall.@zone[1].name='wan'\n"
+                "firewall.@zone[1].network='wan'\n"
+                "firewall.@zone[1].network='wan6'\n"
                 "firewall.@rule[0]=rule\n"
                 "firewall.@rule[0].name='Allow-DHCP-Renew'\n"
                 "firewall.@rule[0].src='wan'\n"
                 "firewall.@rule[0].dest='lan'\n"
                 "firewall.@rule[0].proto='udp'\n"
+                "firewall.@rule[0].dest_port='68'\n"
                 "firewall.@rule[0].target='ACCEPT'\n"
-            )
+                "firewall.@rule[1]=rule\n"
+                "firewall.@rule[1].name='Drop-bad'\n"
+                "firewall.@rule[1].enabled='0'\n"
+                "firewall.@rule[1].target='DROP'\n"
+                "firewall.@redirect[0]=redirect\n"
+                "firewall.@redirect[0].name='Web'\n"
+                "firewall.@redirect[0].src='wan'\n"
+                "firewall.@redirect[0].src_dport='80'\n"
+                "firewall.@redirect[0].dest='lan'\n"
+                "firewall.@redirect[0].dest_ip='192.168.1.50'\n"
+                "firewall.@redirect[0].dest_port='8080'\n"
+                "firewall.@redirect[0].proto='tcp'\n"
+                "firewall.@nat[0]=nat\n"
+                "firewall.@nat[0].name='snat'\n"
+                "firewall.@nat[0].target='SNAT'\n"
+                "firewall.@nat[0].src='lan'\n"
+                "firewall.@nat[0].dest_ip='10.0.0.2'\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "fw4 1.0.1\n",
+            "cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null": "648\n",
+            "cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null": "65536\n",
         }
     )
     info = FirewallCollector().collect(ctx)
+    assert info.defaults.input == "REJECT"
+    assert info.defaults.forward == "REJECT"
+    assert info.defaults.masquerade is True
+    assert info.defaults.syn_flood is True
     assert info.zones[0].name == "lan"
     assert info.zones[0].input == "ACCEPT"
     assert info.zones[0].masquerade is True
+    assert info.zones[0].mtu_fix is True
+    assert info.zones[0].network == ["lan"]
+    assert info.zones[1].network == ["wan", "wan6"]
     assert info.rules[0].name == "Allow-DHCP-Renew"
     assert info.rules[0].target == "ACCEPT"
+    assert info.rules[0].dest_port == "68"
+    assert info.rules[0].enabled is True
+    assert info.rules[0].section == "@rule[0]"
+    assert info.rules[1].enabled is False
+    assert info.forwards[0].name == "Web"
+    assert info.forwards[0].dest_ip == "192.168.1.50"
+    assert info.forwards[0].src_dport == "80"
+    assert info.nat[0].target == "SNAT"
+    assert info.status.running is False
+    assert info.status.version == "fw4 1.0.1"
+    assert info.conntrack is not None
+    assert info.conntrack.count == 648
+    assert info.conntrack.max == 65536
 
 
 def test_wifi_collector() -> None:

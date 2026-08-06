@@ -21,8 +21,13 @@ from router_agent.model import (
     DhcpInfo,
     DhcpLease,
     DhcpPool,
+    FirewallConntrack,
+    FirewallDefaults,
+    FirewallForward,
     FirewallInfo,
+    FirewallNat,
     FirewallRule,
+    FirewallStatus,
     FirewallZone,
     KernelInfo,
     LogEntry,
@@ -196,14 +201,32 @@ def build_simulated_snapshot() -> DeviceSnapshot:
             wan_interface="eth0",
         ),
         firewall=FirewallInfo(
+            defaults=FirewallDefaults(
+                input="REJECT",
+                output="ACCEPT",
+                forward="REJECT",
+                masquerade=True,
+                syn_flood=True,
+                osf=True,
+                mtu=1452,
+            ),
             zones=[
-                FirewallZone(name="lan", input="ACCEPT", output="ACCEPT", forward="ACCEPT"),
+                FirewallZone(
+                    name="lan",
+                    input="ACCEPT",
+                    output="ACCEPT",
+                    forward="ACCEPT",
+                    network=["lan"],
+                    mtu_fix=True,
+                ),
                 FirewallZone(
                     name="wan",
                     input="REJECT",
                     output="ACCEPT",
                     forward="REJECT",
                     masquerade=True,
+                    network=["wan"],
+                    mtu_fix=False,
                 ),
             ],
             rules=[
@@ -215,6 +238,8 @@ def build_simulated_snapshot() -> DeviceSnapshot:
                     dest_port="53",
                     target="ACCEPT",
                     family="ipv4",
+                    enabled=True,
+                    section="@rule[0]",
                 ),
                 FirewallRule(
                     name="drop-invalid",
@@ -222,8 +247,36 @@ def build_simulated_snapshot() -> DeviceSnapshot:
                     proto="tcp",
                     target="REJECT",
                     family="ipv4",
+                    enabled=False,
+                    section="@rule[1]",
                 ),
             ],
+            forwards=[
+                FirewallForward(
+                    name="web-vpn",
+                    proto="tcp",
+                    src="wan",
+                    src_dport="8443",
+                    dest="lan",
+                    dest_ip="192.168.1.50",
+                    dest_port="443",
+                    target="DNAT",
+                    enabled=True,
+                    section="@redirect[0]",
+                )
+            ],
+            nat=[
+                FirewallNat(
+                    name="wan-snat",
+                    target="SNAT",
+                    src="lan",
+                    dest_ip="10.0.0.2",
+                    enabled=True,
+                    section="@nat[0]",
+                )
+            ],
+            status=FirewallStatus(running=True, enabled=True, version="fw4 1"),
+            conntrack=FirewallConntrack(count=648, max=65536),
         ),
         wifi=WifiInfo(
             radios=[

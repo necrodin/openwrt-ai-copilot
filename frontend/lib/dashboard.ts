@@ -81,11 +81,90 @@ export type FirewallZone = {
   output: string | null;
   forward: string | null;
   masquerade: boolean;
+  network: string[];
+  mtu_fix: boolean;
+};
+
+export type FirewallRule = {
+  name: string;
+  src: string | null;
+  dest: string | null;
+  proto: string | null;
+  target: string | null;
+  family: string | null;
+  src_port: string | null;
+  dest_port: string | null;
+  enabled: boolean;
+  section: string;
+};
+
+export type FirewallForward = {
+  name: string;
+  proto: string | null;
+  src: string | null;
+  src_dport: string | null;
+  src_ip: string | null;
+  dest: string | null;
+  dest_ip: string | null;
+  dest_port: string | null;
+  target: string | null;
+  enabled: boolean;
+  section: string;
+};
+
+export type FirewallNat = {
+  name: string;
+  target: string | null;
+  family: string | null;
+  src: string | null;
+  src_dport: string | null;
+  dest: string | null;
+  dest_ip: string | null;
+  dest_port: string | null;
+  proto: string | null;
+  enabled: boolean;
+  section: string;
+};
+
+export type FirewallDefaults = {
+  input: string | null;
+  output: string | null;
+  forward: string | null;
+  masquerade: boolean;
+  syn_flood: boolean;
+  osf: boolean;
+  mtu: number | null;
+};
+
+export type FirewallStatus = {
+  running: boolean;
+  enabled: boolean;
+  version: string | null;
+};
+
+export type FirewallConntrack = {
+  count: number | null;
+  max: number | null;
 };
 
 export type FirewallInfo = {
+  defaults: FirewallDefaults | null;
   zones: FirewallZone[];
-  rules: unknown[];
+  rules: FirewallRule[];
+  forwards: FirewallForward[];
+  nat: FirewallNat[];
+  status: FirewallStatus | null;
+  conntrack: FirewallConntrack | null;
+};
+
+export const EMPTY_FIREWALL: FirewallInfo = {
+  defaults: null,
+  zones: [],
+  rules: [],
+  forwards: [],
+  nat: [],
+  status: null,
+  conntrack: null,
 };
 
 export type WifiRadio = {

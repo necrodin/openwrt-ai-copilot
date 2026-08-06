@@ -104,6 +104,8 @@ class FirewallZone(BaseModel):
     output: str | None = None
     forward: str | None = None
     masquerade: bool = False
+    network: list[str] = Field(default_factory=list)
+    mtu_fix: bool = False
 
 
 class FirewallRule(BaseModel):
@@ -113,12 +115,79 @@ class FirewallRule(BaseModel):
     proto: str | None = None
     target: str | None = None
     family: str | None = None
+    src_port: str | None = None
     dest_port: str | None = None
+    enabled: bool = True
+    section: str | None = None
+
+
+class FirewallForward(BaseModel):
+    """A port-forward (UCI ``redirect`` section)."""
+
+    name: str = ""
+    proto: str | None = None
+    src: str | None = None
+    src_dport: str | None = None
+    src_ip: str | None = None
+    dest: str | None = None
+    dest_ip: str | None = None
+    dest_port: str | None = None
+    target: str | None = None
+    enabled: bool = True
+    section: str | None = None
+
+
+class FirewallNat(BaseModel):
+    """A NAT definition (UCI ``nat`` section)."""
+
+    name: str = ""
+    target: str | None = None
+    family: str | None = None
+    src: str | None = None
+    src_dport: str | None = None
+    dest: str | None = None
+    dest_ip: str | None = None
+    dest_port: str | None = None
+    proto: str | None = None
+    enabled: bool = True
+    section: str | None = None
+
+
+class FirewallDefaults(BaseModel):
+    """Default zone policies and protection switches."""
+
+    input: str | None = None
+    output: str | None = None
+    forward: str | None = None
+    masquerade: bool = False
+    syn_flood: bool = False
+    osf: bool = False
+    mtu: int | None = None
+
+
+class FirewallStatus(BaseModel):
+    """Runtime state and identity of the firewall service."""
+
+    running: bool = False
+    enabled: bool = False
+    version: str | None = None
+
+
+class FirewallConntrack(BaseModel):
+    """Current connection-tracking utilization."""
+
+    count: int | None = None
+    max: int | None = None
 
 
 class FirewallInfo(BaseModel):
     zones: list[FirewallZone] = Field(default_factory=list)
     rules: list[FirewallRule] = Field(default_factory=list)
+    forwards: list[FirewallForward] = Field(default_factory=list)
+    nat: list[FirewallNat] = Field(default_factory=list)
+    defaults: FirewallDefaults = Field(default_factory=FirewallDefaults)
+    status: FirewallStatus = Field(default_factory=FirewallStatus)
+    conntrack: FirewallConntrack | None = None
 
 
 class WifiRadio(BaseModel):
@@ -309,8 +378,13 @@ __all__ = [
     "DhcpInfo",
     "DhcpLease",
     "DhcpPool",
+    "FirewallConntrack",
+    "FirewallDefaults",
+    "FirewallForward",
     "FirewallInfo",
+    "FirewallNat",
     "FirewallRule",
+    "FirewallStatus",
     "FirewallZone",
     "KernelInfo",
     "LogEntry",
