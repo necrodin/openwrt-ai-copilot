@@ -114,7 +114,7 @@ def test_snapshot_one_normalized_json() -> None:
     assert data["meta"]["board"] == "x86/64"
     assert data["meta"]["firmware"] == "SNAPSHOT"
     assert data["meta"]["collectors_run"] == list(COLLECTOR_NAMES)
-    assert len(data["meta"]["collectors_run"]) == 16
+    assert len(data["meta"]["collectors_run"]) == 17
     assert data["errors"] == []
 
     assert data["cpu"]["load_1"] == 0.25

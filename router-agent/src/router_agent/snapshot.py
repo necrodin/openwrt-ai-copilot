@@ -88,6 +88,7 @@ def build_snapshot(
         wifi=results.get("wifi") or WifiInfo(),
         clients=results.get("clients", []),
         arp=results.get("arp", []),
+        neighbors=results.get("neighbors", []),
         routing=results.get("routing", []),
         vpn=results.get("vpn", []),
         dhcp=results.get("dhcp") or DhcpInfo(),

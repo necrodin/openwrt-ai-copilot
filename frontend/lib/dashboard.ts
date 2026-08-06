@@ -123,6 +123,14 @@ export type ArpEntry = {
   state: string;
 };
 
+export type NeighborEntry = {
+  ip: string;
+  mac: string | null;
+  interface: string | null;
+  state: string | null;
+  family: "ipv6" | "ipv4";
+};
+
 export type RouteEntry = {
   destination: string;
   gateway: string | null;
@@ -201,6 +209,7 @@ export type DeviceSnapshot = {
   wifi: WifiInfo;
   clients: DhcpLease[];
   arp: ArpEntry[];
+  neighbors: NeighborEntry[];
   routing: RouteEntry[];
   vpn: VpnTunnel[];
   dhcp: unknown;

@@ -12,6 +12,7 @@ from router_agent.collectors.firewall import FirewallCollector
 from router_agent.collectors.kernel import KernelCollector
 from router_agent.collectors.logs import LogsCollector
 from router_agent.collectors.memory import MemoryCollector
+from router_agent.collectors.neighbors import NeighborsCollector
 from router_agent.collectors.network import NetworkCollector
 from router_agent.collectors.packages import PackagesCollector
 from router_agent.collectors.routing import RoutingCollector
@@ -294,6 +295,29 @@ def test_arp_collector() -> None:
     assert entries[0].mac == "aa:bb:cc:dd:ee:01"
     assert entries[0].interface == "br-lan"
     assert entries[0].state == "complete"
+
+
+def test_neighbors_collector_parses_nd_cache() -> None:
+    ctx = make_context(
+        {
+            "ip -6 neigh show": (
+                "fe80::1 dev br-lan lladdr 88:22:11:aa:bb:cc router REACHABLE\n"
+                "2001:db8:1::1234 dev br-lan lladdr 00:11:22:33:44:55 STALE\n"
+                "fe80::2 dev br-lan FAILED\n"
+            )
+        }
+    )
+    entries = NeighborsCollector().collect(ctx)
+    assert len(entries) == 3
+    first = entries[0]
+    assert first.ip == "fe80::1"
+    assert first.mac == "88:22:11:aa:bb:cc"
+    assert first.interface == "br-lan"
+    assert first.state == "reachable"
+    assert first.family == "ipv6"
+    assert entries[1].state == "stale"
+    assert entries[2].mac is None
+    assert entries[2].state is None
 
 
 def test_routing_collector() -> None:

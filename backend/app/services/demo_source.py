@@ -28,6 +28,7 @@ from router_agent.model import (
     LogEntry,
     LogInfo,
     MemoryInfo,
+    NeighborEntry,
     NetworkAddress,
     NetworkInterface,
     NetworkStatus,
@@ -271,6 +272,15 @@ def build_simulated_snapshot() -> DeviceSnapshot:
         ],
         arp=[
             ArpEntry(ip=ip, mac=mac, interface="br-lan", state="REACHABLE") for _, ip, mac in active
+        ],
+        neighbors=[
+            NeighborEntry(
+                ip=f"2001:db8:1::{20 + idx}",
+                mac=mac,
+                interface="br-lan",
+                state="reachable",
+            )
+            for idx, (_, _, mac) in enumerate(active)
         ],
         routing=[
             RouteEntry(

@@ -31,6 +31,7 @@ def test_only_exposes_all_collector_names() -> None:
         "wifi",
         "clients",
         "arp",
+        "neighbors",
         "routing",
         "vpn",
         "dhcp",

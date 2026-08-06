@@ -156,6 +156,20 @@ class ArpEntry(BaseModel):
     state: str = "unknown"
 
 
+class NeighborEntry(BaseModel):
+    """One entry in the IPv6 neighbor discovery cache (MAC &rarr; IPv6).
+
+    Unlike the ARP table (IPv4 &rarr; MAC), this maps a link-layer address to its
+    IPv6 addresses so a client can be resolved across address families.
+    """
+
+    ip: str
+    mac: str | None = None
+    interface: str | None = None
+    state: str | None = None
+    family: Literal["ipv6", "ipv4"] = "ipv6"
+
+
 class RouteEntry(BaseModel):
     destination: str
     gateway: str | None = None
@@ -276,6 +290,7 @@ class DeviceSnapshot(BaseModel):
     wifi: WifiInfo = Field(default_factory=WifiInfo)
     clients: list[DhcpLease] = Field(default_factory=list)
     arp: list[ArpEntry] = Field(default_factory=list)
+    neighbors: list[NeighborEntry] = Field(default_factory=list)
     routing: list[RouteEntry] = Field(default_factory=list)
     vpn: list[VpnTunnel] = Field(default_factory=list)
     dhcp: DhcpInfo = Field(default_factory=DhcpInfo)
@@ -301,6 +316,7 @@ __all__ = [
     "LogEntry",
     "LogInfo",
     "MemoryInfo",
+    "NeighborEntry",
     "NetworkAddress",
     "NetworkInterface",
     "NetworkStatus",

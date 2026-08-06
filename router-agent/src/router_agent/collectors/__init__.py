@@ -15,6 +15,7 @@ from router_agent.collectors.firewall import FirewallCollector
 from router_agent.collectors.kernel import KernelCollector
 from router_agent.collectors.logs import LogsCollector
 from router_agent.collectors.memory import MemoryCollector
+from router_agent.collectors.neighbors import NeighborsCollector
 from router_agent.collectors.network import NetworkCollector
 from router_agent.collectors.packages import PackagesCollector
 from router_agent.collectors.routing import RoutingCollector
@@ -36,6 +37,7 @@ ALL_COLLECTORS: dict[str, type[Collector]] = {
         WifiCollector,
         ClientsCollector,
         ArpCollector,
+        NeighborsCollector,
         RoutingCollector,
         VpnCollector,
         DhcpCollector,
