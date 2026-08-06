@@ -30,7 +30,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -45,6 +45,13 @@ export type ManagementJob = {
   artifact?: { name: string; media_type: string; size: number };
 };
 
+export type DhcpHostPayload = {
+  section?: string;
+  hostname?: string;
+  ip?: string;
+  mac?: string;
+};
+
 export type JobRequest = {
   kind: JobKind;
   action?: string;
@@ -53,6 +60,9 @@ export type JobRequest = {
   content_b64?: string;
   section?: string;
   enabled?: boolean;
+  hostname?: string;
+  ip?: string;
+  mac?: string;
 };
 
 async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
@@ -131,6 +141,26 @@ export function toggleVpnInstance(
   signal?: AbortSignal,
 ): Promise<ManagementJob> {
   return startJob({ kind: "vpn", section, enabled, confirmed: true }, signal);
+}
+
+export function setDhcpEnabled(
+  enabled: boolean,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "dhcp", action: "set-enabled", enabled, confirmed: true }, signal);
+}
+
+export type DhcpHostAction = "host-add" | "host-edit" | "host-delete" | "host-toggle";
+
+export function runDhcpHost(
+  action: DhcpHostAction,
+  payload: DhcpHostPayload,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob(
+    { kind: "dhcp", action, confirmed: true, ...payload },
+    signal,
+  );
 }
 
 export function jobArtifactUrl(jobId: string): string {

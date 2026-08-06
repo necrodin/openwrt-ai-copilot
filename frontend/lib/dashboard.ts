@@ -272,6 +272,33 @@ export type DhcpLease = {
   interface: string | null;
 };
 
+export type DhcpPool = {
+  name: string;
+  interface: string | null;
+  start: string | null;
+  limit: number | null;
+  leasetime: string | null;
+  range_end: string | null;
+};
+
+export type DhcpStaticLease = {
+  section: string;
+  hostname: string | null;
+  ip: string | null;
+  mac: string | null;
+  enabled: boolean;
+};
+
+export type DhcpInfo = {
+  pools: DhcpPool[];
+  leases: DhcpLease[];
+  static_leases: DhcpStaticLease[];
+  enabled: boolean;
+  gateway: string | null;
+  dns: string[];
+  domain: string | null;
+};
+
 export type KernelInfo = {
   kernel: string;
   release: string;
@@ -323,7 +350,7 @@ export type DeviceSnapshot = {
   neighbors: NeighborEntry[];
   routing: RouteEntry[];
   vpn: VpnTunnel[];
-  dhcp: unknown;
+  dhcp: DhcpInfo;
   packages: unknown[];
   services: ServiceInfo[];
   kernel: KernelInfo;

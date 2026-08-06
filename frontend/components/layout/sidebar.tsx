@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Router,
+  Server,
   Settings,
   Shield,
   Sparkles,
@@ -45,6 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/firewall", label: "Firewall", icon: Shield },
   { href: "/vpn", label: "VPN", icon: Lock },
   { href: "/monitoring", label: "Monitoring", icon: Activity },
+  { href: "/dhcp", label: "DHCP", icon: Server },
   { href: "/chat", label: "AI Chat", icon: MessageSquareText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

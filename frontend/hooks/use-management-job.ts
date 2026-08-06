@@ -8,6 +8,7 @@ import {
   fetchJob,
   readFileAsBase64,
   startJob,
+  type DhcpHostPayload,
   type JobRequest,
   type ManagementJob,
 } from "@/lib/router-management";
@@ -31,6 +32,11 @@ export type ManagementJobRunner = {
   runFirewallToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runWirelessToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runVpnToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
+  setDhcpEnabled: (enabled: boolean) => Promise<ManagementJob>;
+  addDhcpHost: (payload: DhcpHostPayload) => Promise<ManagementJob>;
+  editDhcpHost: (payload: DhcpHostPayload) => Promise<ManagementJob>;
+  deleteDhcpHost: (section: string) => Promise<ManagementJob>;
+  toggleDhcpHost: (section: string, enabled: boolean) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
   stageRestore: (file: File) => Promise<ManagementJob>;
@@ -138,6 +144,35 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const setDhcpEnabled = useCallback(
+    (enabled: boolean) => begin({ kind: "dhcp", action: "set-enabled", enabled, confirmed: true }, true),
+    [begin],
+  );
+
+  const addDhcpHost = useCallback(
+    (payload: DhcpHostPayload) =>
+      begin({ kind: "dhcp", action: "host-add", confirmed: true, ...payload }, true),
+    [begin],
+  );
+
+  const editDhcpHost = useCallback(
+    (payload: DhcpHostPayload) =>
+      begin({ kind: "dhcp", action: "host-edit", confirmed: true, ...payload }, true),
+    [begin],
+  );
+
+  const deleteDhcpHost = useCallback(
+    (section: string) =>
+      begin({ kind: "dhcp", action: "host-delete", section, confirmed: true }, true),
+    [begin],
+  );
+
+  const toggleDhcpHost = useCallback(
+    (section: string, enabled: boolean) =>
+      begin({ kind: "dhcp", action: "host-toggle", section, enabled, confirmed: true }, true),
+    [begin],
+  );
+
   const createBackup = useCallback(() => begin({ kind: "backup", confirmed: false }, true), [begin]);
 
   const createBundle = useCallback(() => begin({ kind: "bundle", confirmed: false }, true), [begin]);
@@ -217,6 +252,11 @@ export function useManagementJob(): ManagementJobRunner {
     runFirewallToggle,
     runWirelessToggle,
     runVpnToggle,
+    setDhcpEnabled,
+    addDhcpHost,
+    editDhcpHost,
+    deleteDhcpHost,
+    toggleDhcpHost,
     createBackup,
     createBundle,
     stageRestore,

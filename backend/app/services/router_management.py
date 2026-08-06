@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import ipaddress
 import logging
 import re
 import threading
@@ -62,6 +63,8 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
     "restart-dropbear": ("/etc/init.d/dropbear restart", False),
     "reload-vpn": ("/etc/init.d/openvpn reload", False),
     "restart-vpn": ("/etc/init.d/openvpn restart", False),
+    "reload-dhcp": ("/etc/init.d/dnsmasq reload", False),
+    "restart-dhcp": ("/etc/init.d/dnsmasq restart", False),
 }
 
 ACTION_LABELS: dict[str, str] = {
@@ -76,6 +79,8 @@ ACTION_LABELS: dict[str, str] = {
     "restart-dropbear": "Restart Dropbear",
     "reload-vpn": "Reload VPN",
     "restart-vpn": "Restart VPN",
+    "reload-dhcp": "Reload DHCP",
+    "restart-dhcp": "Restart DHCP",
 }
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -673,6 +678,152 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"VPN instance could not be {action_label.lower()}d.",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- DHCP -------------------------------------------------------------- #
+
+    _DHCP_SECTION_PATTERN = re.compile(r"^@?[A-Za-z0-9_@.\-]+(\[\d+\])?$")
+
+    @staticmethod
+    def _shell_single(value: str) -> str:
+        """Wrap a value in single quotes, escaping embedded quotes safely."""
+        return "'" + value.replace("'", "'\\''") + "'"
+
+    def _validate_static(self, *, hostname: str, ip: str, mac: str) -> None:
+        if not hostname or not ip or not mac:
+            raise RouterManagementError("Hostname, IP and MAC are all required.")
+        if len(hostname) > 63 or not re.fullmatch(r"[A-Za-z0-9_.\-]+", hostname):
+            raise RouterManagementError("Invalid hostname.")
+        try:
+            address = ipaddress.ip_address(ip)
+        except ValueError as exc:
+            raise RouterManagementError("Invalid IP address.") from exc
+        if address.version != 4:
+            raise RouterManagementError("Only IPv4 static leases are supported.")
+        if not re.fullmatch(r"(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}", mac):
+            raise RouterManagementError("Invalid MAC address.")
+
+    def _dhcp_run(self, command: str) -> tuple[bool, str]:
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            return result.ok, result.stdout
+        finally:
+            transport.close()
+
+    def dhcp_set_enabled(self, *, enabled: bool) -> dict[str, Any]:
+        """Enable or disable the whole dnsmasq DHCP server."""
+        value = "1" if enabled else "0"
+        ok, _ = self._dhcp_run(
+            f"uci set dhcp.@dnsmasq[0].enable_dnsmasq='{value}' && "
+            "uci commit dhcp && /etc/init.d/dnsmasq restart"
+        )
+        label = "Enabled" if enabled else "Disabled"
+        if not ok:
+            return {"ok": False, "message": f"Could not {label.lower()} the DHCP server."}
+        return {"ok": True, "message": f"DHCP server {label.lower()}."}
+
+    def dhcp_add_host(self, *, hostname: str, ip: str, mac: str) -> dict[str, Any]:
+        """Create a new ``dhcp.@host`` static lease."""
+        self._validate_static(hostname=hostname, ip=ip, mac=mac)
+        command = (
+            "sid=$(uci add dhcp host) && "
+            f"uci set dhcp.$sid.name={self._shell_single(hostname)} && "
+            f"uci set dhcp.$sid.ip={self._shell_single(ip)} && "
+            f"uci set dhcp.$sid.mac={self._shell_single(mac)} && "
+            "uci commit dhcp && /etc/init.d/dnsmasq reload && printf '%s' \"$sid\""
+        )
+        ok, stdout = self._dhcp_run(command)
+        if not ok:
+            return {"ok": False, "message": "Could not add the static lease."}
+        section = stdout.strip().splitlines()[-1].strip() if stdout.strip() else None
+        return {
+            "ok": True,
+            "section": section,
+            "message": f"Static lease for {hostname} added.",
+        }
+
+    def dhcp_edit_host(self, *, section: str, hostname: str, ip: str, mac: str) -> dict[str, Any]:
+        """Update an existing ``dhcp.@host`` static lease."""
+        if not section or not self._DHCP_SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid static lease section identifier.")
+        self._validate_static(hostname=hostname, ip=ip, mac=mac)
+        command = (
+            f"uci set dhcp.{section}.name={self._shell_single(hostname)} && "
+            f"uci set dhcp.{section}.ip={self._shell_single(ip)} && "
+            f"uci set dhcp.{section}.mac={self._shell_single(mac)} && "
+            "uci commit dhcp && /etc/init.d/dnsmasq reload"
+        )
+        ok, _ = self._dhcp_run(command)
+        if not ok:
+            return {"ok": False, "message": f"Could not update the static lease for {hostname}."}
+        return {"ok": True, "message": f"Static lease for {hostname} updated."}
+
+    def dhcp_delete_host(self, *, section: str) -> dict[str, Any]:
+        """Delete a ``dhcp.@host`` static lease."""
+        if not section or not self._DHCP_SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid static lease section identifier.")
+        ok, _ = self._dhcp_run(
+            f"uci delete dhcp.{section} && uci commit dhcp && /etc/init.d/dnsmasq reload"
+        )
+        if not ok:
+            return {"ok": False, "message": "Could not delete the static lease."}
+        return {"ok": True, "message": "Static lease deleted."}
+
+    def dhcp_toggle_host(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable a ``dhcp.@host`` static lease."""
+        if not section or not self._DHCP_SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid static lease section identifier.")
+        if enabled:
+            command = f"uci delete dhcp.{section}.enabled && uci commit dhcp"
+        else:
+            command = f"uci set dhcp.{section}.enabled='0' && uci commit dhcp"
+        ok, _ = self._dhcp_run(command)
+        if not ok:
+            return {"ok": False, "message": "Could not change the static lease state."}
+        label = "Enabled" if enabled else "Disabled"
+        return {"ok": True, "message": f"Static lease {label.lower()}."}
+
+    def run_dhcp_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        section: str | None,
+        enabled: bool,
+        hostname: str | None,
+        ip: str | None,
+        mac: str | None,
+    ) -> ManagementJob:
+        """Execute a DHCP change inside a tracked job."""
+        self._jobs.transition(job_id, "running", message="Applying DHCP change…")
+        try:
+            if action == "set-enabled":
+                result = self.dhcp_set_enabled(enabled=enabled)
+            elif action == "host-add":
+                result = self.dhcp_add_host(hostname=hostname or "", ip=ip or "", mac=mac or "")
+            elif action == "host-edit":
+                result = self.dhcp_edit_host(
+                    section=section or "",
+                    hostname=hostname or "",
+                    ip=ip or "",
+                    mac=mac or "",
+                )
+            elif action == "host-delete":
+                result = self.dhcp_delete_host(section=section or "")
+            elif action == "host-toggle":
+                result = self.dhcp_toggle_host(section=section or "", enabled=enabled)
+            else:
+                raise RouterManagementError(f"Unsupported DHCP action: {action}")
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("DHCP action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"DHCP change failed: {exc}",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 

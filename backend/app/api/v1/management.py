@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["router"])
 
-JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall", "wireless", "vpn"}
+JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall", "wireless", "vpn", "dhcp"}
 CONFIRMED_KINDS = {"action", "restore"}
 
 
@@ -48,6 +48,9 @@ class ManagementJobRequest(BaseModel):
     content_b64: str | None = Field(default=None, max_length=64_000_000)
     section: str | None = Field(default=None, max_length=128)
     enabled: bool = False
+    hostname: str | None = Field(default=None, max_length=63)
+    ip: str | None = Field(default=None, max_length=64)
+    mac: str | None = Field(default=None, max_length=32)
 
 
 def _service(request: Request) -> RouterManagementService:
@@ -177,6 +180,32 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                 job.id,
                 section=payload.section,
                 enabled=payload.enabled,
+            )
+        )
+        return _job_dict(job)
+
+    if payload.kind == "dhcp":
+        if not payload.action:
+            raise HTTPException(status_code=422, detail="A DHCP action is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to change "
+                    "the DHCP configuration on the router."
+                ),
+            )
+        job = service.job_store.create("dhcp", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_dhcp_job,
+                job.id,
+                action=payload.action,
+                section=payload.section,
+                enabled=payload.enabled,
+                hostname=payload.hostname,
+                ip=payload.ip,
+                mac=payload.mac,
             )
         )
         return _job_dict(job)

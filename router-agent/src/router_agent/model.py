@@ -307,6 +307,17 @@ class DhcpPool(BaseModel):
     start: str | None = None
     limit: int | None = None
     leasetime: str | None = None
+    range_end: str | None = None
+
+
+class DhcpStaticLease(BaseModel):
+    """A UCI ``dhcp.@host`` static lease (MAC → fixed IP)."""
+
+    section: str
+    hostname: str | None = None
+    ip: str | None = None
+    mac: str | None = None
+    enabled: bool = True
 
 
 class DhcpLease(BaseModel):
@@ -320,7 +331,11 @@ class DhcpLease(BaseModel):
 class DhcpInfo(BaseModel):
     pools: list[DhcpPool] = Field(default_factory=list)
     leases: list[DhcpLease] = Field(default_factory=list)
+    static_leases: list[DhcpStaticLease] = Field(default_factory=list)
     enabled: bool = True
+    gateway: str | None = None
+    dns: list[str] = Field(default_factory=list)
+    domain: str | None = None
 
 
 class Package(BaseModel):
@@ -418,6 +433,7 @@ __all__ = [
     "DhcpInfo",
     "DhcpLease",
     "DhcpPool",
+    "DhcpStaticLease",
     "FirewallConntrack",
     "FirewallDefaults",
     "FirewallForward",
