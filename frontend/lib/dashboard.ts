@@ -71,6 +71,10 @@ export type NetworkInterface = {
   stp_enabled: boolean | null;
   forward_delay: number | null;
   uptime_seconds: number | null;
+  rx_errors: number | null;
+  tx_errors: number | null;
+  rx_dropped: number | null;
+  tx_dropped: number | null;
 };
 
 export type NetworkStatus = {

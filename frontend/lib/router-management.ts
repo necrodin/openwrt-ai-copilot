@@ -182,6 +182,35 @@ export function jobArtifactUrl(jobId: string): string {
   return `${API_BASE_URL}/router/management/jobs/${jobId}/artifact`;
 }
 
+export type RouterProcess = {
+  pid: number;
+  cpu: number;
+  mem: number | null;
+  rss: number;
+  vsz: number | null;
+  user: string;
+  name: string;
+  command: string;
+};
+
+export type ProcessResponse = {
+  count: number;
+  generated_at: string;
+  processes: RouterProcess[];
+};
+
+export function fetchProcesses(signal?: AbortSignal): Promise<ProcessResponse> {
+  return request<ProcessResponse>("/router/management/processes", undefined, signal);
+}
+
+export function killProcess(pid: number, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  return request<{ ok: boolean; message: string }>(
+    `/router/management/processes/${pid}/kill`,
+    { method: "POST" },
+    signal,
+  );
+}
+
 export async function downloadJobArtifact(jobId: string, filename?: string): Promise<void> {
   const response = await fetch(jobArtifactUrl(jobId));
   if (!response.ok) {

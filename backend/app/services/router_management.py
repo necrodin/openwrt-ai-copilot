@@ -66,6 +66,13 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
     "reload-dhcp": ("/etc/init.d/dnsmasq reload", False),
     "restart-dhcp": ("/etc/init.d/dnsmasq restart", False),
     "reload-network": ("/etc/init.d/network reload", False),
+    # Restart whichever monitoring daemon is installed and enabled (best-effort).
+    "restart-monitoring": (
+        "for s in netdata collectd telegraf zabbix_agentd monit; do "
+        "[ -x /etc/init.d/$s ] && /etc/init.d/$s enabled >/dev/null 2>&1 && "
+        "/etc/init.d/$s restart >/dev/null 2>&1; done; true",
+        False,
+    ),
 }
 
 ACTION_LABELS: dict[str, str] = {
@@ -83,6 +90,7 @@ ACTION_LABELS: dict[str, str] = {
     "reload-dhcp": "Reload DHCP",
     "restart-dhcp": "Restart DHCP",
     "reload-network": "Reload Network",
+    "restart-monitoring": "Restart Monitoring",
 }
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -949,6 +957,185 @@ class RouterManagementService:
                 message=f"Network command failed: {exc}",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- processes --------------------------------------------------------- #
+
+    # Emits "__AI_CPU_TOTAL__ <jiffies>", "__AI_MEM_TOTAL_KB__ <kb>", and one
+    # "<uid>|__AI_UIDSEP__|<stat>|__AI_CMDSEP__|<cmdline>" line per process where
+    # <stat> is the raw /proc/<pid>/stat line (its comm already wrapped in parens),
+    # <cmdline> is the NUL-joined argv, and <uid> comes from /proc/<pid>/status.
+
+    _PROCS_SCRIPT = (
+        "tot=$(awk '{s=0;for(i=2;i<=NF;i++)s+=$i}END{print s}' /proc/stat 2>/dev/null); "
+        "printf '__AI_CPU_TOTAL__ %s\\n' \"$tot\"; "
+        "mem=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null); "
+        "printf '__AI_MEM_TOTAL_KB__ %s\\n' \"$mem\"; "
+        "for d in /proc/[0-9]*; do "
+        "[ -r \"$d/stat\" ] || continue; "
+        "p=${d#/proc/}; "
+        "s=$(cat \"$d/stat\" 2>/dev/null) || continue; "
+        "u=$(awk '/^Uid:/{print $2}' \"$d/status\" 2>/dev/null); "
+        "c=$(cat \"$d/cmdline\" 2>/dev/null | tr '\\0' ' '); "
+        "[ -n \"$u\" ] || u=0; "
+        "printf '%s|__AI_UIDSEP__|%s|__AI_CMDSEP__|%s\\n' \"$u\" \"$s\" \"$c\"; "
+        "done"
+    )
+
+    @staticmethod
+    def _parse_proc_stat(stat: str) -> tuple[int, int, int, int] | None:
+        """Return ``(utime, stime, vsize, rss_pages)`` from ``/proc/<pid>/stat``.
+
+        Offsets are relative to the fields *after* the closing paren of the comm
+        wrapping: state(0) ppid(1) pgrp(2) session(3) tty(4) tpgid(5) flags(6)
+        minflt(7) cminflt(8) majflt(9) cmajflt(10) utime(11) stime(12) cutime(13)
+        cstime(14) priority(15) nice(16) num_threads(17) itrealvalue(18)
+        starttime(19) vsize(20) rss(21).
+        """
+        try:
+            _pid, _, rest = stat.partition(")")
+            cols = rest.split()
+            if len(cols) < 22:
+                return None
+            return (int(cols[11]), int(cols[12]), int(cols[20]), int(cols[21]))
+        except (ValueError, IndexError):
+            return None
+
+    def _collect_process_rows(
+        self, transport: SSHTransport
+    ) -> tuple[int, int, dict[str, dict[str, Any]]]:
+        """Run the /proc sampler, returning (cpu_jiffies, mem_kb, pid -> row).
+
+        Each row carries ``utime``/``stime`` ticks, ``vsz`` bytes, ``rss_pages``,
+        the process's real-user d UID, its comm name, and its argv command line.
+        """
+        result = self.run(transport, self._PROCS_SCRIPT, timeout=30.0)
+        cpu_total = 0
+        mem_kb = 0
+        rows: dict[str, dict[str, Any]] = {}
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("__AI_CPU_TOTAL__ "):
+                token = line.split(None, 2)[1]
+                if token.isdigit():
+                    cpu_total = int(token)
+            elif line.startswith("__AI_MEM_TOTAL_KB__ "):
+                token = line.split(None, 3)[2]
+                if token.isdigit():
+                    mem_kb = int(token)
+            elif "__AI_CMDSEP__" in line:
+                uid, _, rest = line.partition("|__AI_UIDSEP__|")
+                stat, _, cmdline = rest.partition("|__AI_CMDSEP__|")
+                parsed = self._parse_proc_stat(stat)
+                if parsed is None:
+                    continue
+                utime, stime, vsz, rss_pages = parsed
+                tokens = stat.split()
+                pid = tokens[0]
+                comm = tokens[1] if len(tokens) > 1 else ""
+                rows[pid] = {
+                    "comm": comm.strip("()$"),
+                    "cmd": cmdline.strip(),
+                    "user": self._uid_name(int(uid)),
+                    "utime": utime,
+                    "stime": stime,
+                    "vsz": vsz,
+                    "rss_pages": rss_pages,
+                }
+        return cpu_total, mem_kb, rows
+
+    @staticmethod
+    def _uid_name(uid: int) -> str:
+        """Map a numeric UID to a short account name (numeric fallback)."""
+        return {
+            0: "root",
+            1: "daemon",
+            2: "bin",
+            3: "sys",
+            4: "adm",
+            7: "lp",
+            8: "mail",
+            13: "uucp",
+            65: "nobody",
+            1000: "www",
+            65534: "nobody",
+        }.get(uid, str(uid))
+
+    def processes(self) -> dict[str, Any]:
+        """Return a live process table with CPU and memory percentages."""
+        transport = self.open()
+        try:
+            cpu_a, mem_total, a = self._collect_process_rows(transport)
+            time.sleep(1.0)
+            cpu_b, _, b = self._collect_process_rows(transport)
+            cpus = int(
+                self.run(
+                    transport,
+                    "grep -c '^processor' /proc/cpuinfo 2>/dev/null",
+                    timeout=20.0,
+                ).stdout.strip()
+                or 1
+            )
+            cpus = max(1, cpus)
+            cpu_delta = cpu_b - cpu_a
+            elapsed_jiffies = max(cpu_delta, 1)
+            mem_bytes = mem_total * 1024
+
+            entries: list[dict[str, Any]] = []
+            for pid, latest in b.items():
+                prev = a.get(pid, latest)
+                proc_delta = (latest["utime"] + latest["stime"]) - (
+                    prev["utime"] + prev["stime"]
+                )
+                rss_bytes = latest["rss_pages"] * 4096
+                cpu_pct = max(0.0, (proc_delta / elapsed_jiffies) * cpus * 100.0)
+                mem_pct = (rss_bytes / mem_bytes * 100.0) if mem_bytes else None
+                command = latest["cmd"] or latest["comm"]
+                entries.append(
+                    {
+                        "pid": int(pid),
+                        "cpu": round(cpu_pct, 1),
+                        "mem": round(mem_pct, 1) if mem_pct is not None else None,
+                        "rss": rss_bytes,
+                        "vsz": latest["vsz"] or None,
+                        "user": latest["user"],
+                        "name": latest["comm"],
+                        "command": command,
+                    }
+                )
+
+            entries.sort(key=lambda entry: entry["pid"])
+            return {
+                "count": len(entries),
+                "generated_at": datetime.now(UTC).isoformat(),
+                "processes": entries,
+            }
+        finally:
+            transport.close()
+
+    def kill_process(self, pid: int) -> dict[str, Any]:
+        """Send ``SIGTERM`` to a process and confirm termination."""
+        if pid <= 0 or pid > 4_194_304:
+            raise RouterManagementError("Invalid process id.")
+        transport = self.open()
+        try:
+            result = self.run(transport, f"kill {pid}; wait {pid} 2>/dev/null; true", timeout=30.0)
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "pid": pid,
+                    "message": f"Could not signal process {pid} (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "pid": pid,
+                "message": f"SIGTERM sent to process {pid}.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
 
     # -- backup ------------------------------------------------------------ #
 

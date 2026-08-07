@@ -34,6 +34,12 @@ def _vlan_id(name: str) -> int | None:
     return int(match.group(2)) if match else None
 
 
+def _stats_value(stats: dict | None, key: str) -> int | None:
+    if stats is None or stats.get(key) is None:
+        return None
+    return int(stats[key])
+
+
 class NetworkCollector(Collector):
     name = "network"
 
@@ -91,6 +97,10 @@ class NetworkCollector(Collector):
                         else None
                     ),
                     uptime_seconds=int(entry["uptime"]) if entry.get("uptime") else None,
+                    rx_errors=_stats_value(stats, "rx_errors"),
+                    tx_errors=_stats_value(stats, "tx_errors"),
+                    rx_dropped=_stats_value(stats, "rx_dropped"),
+                    tx_dropped=_stats_value(stats, "tx_dropped"),
                 )
             )
 

@@ -93,6 +93,10 @@ class NetworkInterface(BaseModel):
     forward_delay: int | None = None
     #: Best-effort connection uptime in seconds when netifd reports it.
     uptime_seconds: int | None = None
+    rx_errors: int | None = None
+    tx_errors: int | None = None
+    rx_dropped: int | None = None
+    tx_dropped: int | None = None
 
 
 class NetworkStatus(BaseModel):

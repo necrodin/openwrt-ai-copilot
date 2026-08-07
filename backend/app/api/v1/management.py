@@ -101,6 +101,24 @@ def logs(request: Request, lines: int = 500) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/router/management/processes")
+def processes(request: Request) -> dict:
+    """Return a live process table with CPU/memory percentages."""
+    try:
+        return _service(request).processes()
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/router/management/processes/{pid}/kill")
+def kill_process(request: Request, pid: int) -> dict:
+    """Send SIGTERM to a running process."""
+    try:
+        return _service(request).kill_process(pid=pid)
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @router.post("/router/management/jobs")
 async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
     """Start a management job and return it for progress polling."""
