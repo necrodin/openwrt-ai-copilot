@@ -45,6 +45,7 @@ JOB_KINDS = {
     "dhcp",
     "network",
     "system",
+    "packages",
 }
 CONFIRMED_KINDS = {"action", "restore"}
 
@@ -65,6 +66,7 @@ class ManagementJobRequest(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     language: str | None = Field(default=None, max_length=16)
     notes: str | None = Field(default=None, max_length=512)
+    name: str | None = Field(default=None, max_length=128)
 
 
 def _service(request: Request) -> RouterManagementService:
@@ -92,6 +94,33 @@ def refresh_packages(request: Request) -> dict:
     """Force a fresh package inventory (bypassing the short TTL cache)."""
     try:
         return _service(request).packages(refresh=True)
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/packages/feeds")
+def package_feeds(request: Request) -> dict:
+    """Return the configured package feeds and last list-update time."""
+    try:
+        return _service(request).feeds()
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/packages/search")
+def search_packages(request: Request, q: str = "") -> dict:
+    """Search the repository for available packages by name or description."""
+    try:
+        return _service(request).search_packages(q)
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/packages/{name}")
+def package_details(request: Request, name: str) -> dict:
+    """Return detailed metadata for a single package."""
+    try:
+        return _service(request).package_details(name)
     except RouterManagementError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -277,6 +306,28 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
     if payload.kind == "bundle":
         job = service.job_store.create("bundle", message="Queued")
         asyncio.create_task(asyncio.to_thread(service.run_bundle_job, job.id))
+        return _job_dict(job)
+
+    if payload.kind == "packages":
+        if not payload.action:
+            raise HTTPException(status_code=422, detail="A package action is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to run the "
+                    f"'{payload.action}' package operation on the router."
+                ),
+            )
+        job = service.job_store.create("packages", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_packages_job,
+                job.id,
+                action=payload.action,
+                name=payload.name,
+            )
+        )
         return _job_dict(job)
 
     if payload.kind == "system":

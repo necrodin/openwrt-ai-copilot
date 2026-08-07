@@ -41,6 +41,7 @@ export type ManagementJobRunner = {
   deleteDhcpHost: (section: string) => Promise<ManagementJob>;
   toggleDhcpHost: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runNetwork: (action: NetworkAction, section: string) => Promise<ManagementJob>;
+  runPackage: (action: "install" | "remove" | "upgrade" | "reinstall" | "update-feeds", name?: string) => Promise<ManagementJob>;
   saveSystem: (config: SystemConfig) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
@@ -184,6 +185,15 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runPackage = useCallback(
+    (action: "install" | "remove" | "upgrade" | "reinstall" | "update-feeds", name?: string) =>
+      begin(
+        { kind: "packages", action, name: name ?? "", confirmed: true },
+        true,
+      ),
+    [begin],
+  );
+
   const saveSystem = useCallback(
     (config: SystemConfig) => saveSystemConfig(config),
     [],
@@ -274,6 +284,7 @@ export function useManagementJob(): ManagementJobRunner {
     deleteDhcpHost,
     toggleDhcpHost,
     runNetwork,
+    runPackage,
     saveSystem,
     createBackup,
     createBundle,

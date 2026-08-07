@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 # Short TTL for the package inventory so repeated page loads don't hammer SSH.
 PACKAGE_CACHE_TTL_S = 30.0
+# ``opkg list`` is expensive; cache the raw output for searches.
+PACKAGE_LIST_TTL_S = 120.0
 
 # Many OpenWrt busy-box builds lack ``base64``/``od`` but ship ``hexdump`` and a
 # multi-call ``printf``. Binary is therefore transferred as ``hexdump -C`` output
@@ -122,6 +124,7 @@ JobKind = Literal[
     "dhcp",
     "network",
     "system",
+    "packages",
 ]
 
 _EXIT_SENTINEL = "__AI_EXIT__="
@@ -279,6 +282,8 @@ class RouterManagementService:
         self._guard = RouterActionGuard()
         self._packages_cache: dict[str, Any] = {}
         self._packages_cache_at: float = 0.0
+        self._opkg_list_text: str = ""
+        self._opkg_list_at: float = 0.0
 
     @property
     def job_store(self) -> ManagementJobStore:
@@ -450,6 +455,7 @@ class RouterManagementService:
                 upgrades = self._parse_apk_upgradable(
                     self.run(transport, "apk list --upgradable").stdout
                 )
+                status: dict[str, dict[str, Any]] = {}
             elif manager == "opkg":
                 installed = self._parse_opkg_installed(
                     self.run(transport, "opkg list-installed").stdout
@@ -458,12 +464,28 @@ class RouterManagementService:
                     self.run(transport, "opkg list-upgradable").stdout
                 )
                 upgrades = {name: available for name, (_i, available) in opkg_upgrades.items()}
+                status = self._parse_opkg_status(
+                    self.run(
+                        transport,
+                        "opkg status 2>/dev/null || cat /usr/lib/opkg/status 2>/dev/null",
+                    ).stdout
+                )
             else:
-                installed, upgrades = [], {}
-            packages = [
-                {"name": name, "version": version, "upgrade": upgrades.get(name)}
-                for name, version in installed
-            ]
+                installed, upgrades, status = [], {}, {}
+            packages: list[dict[str, Any]] = []
+            for name, version in installed:
+                details = status.get(name, {})
+                packages.append(
+                    {
+                        "name": name,
+                        "version": details.get("version") or version,
+                        "upgrade": upgrades.get(name),
+                        "size": details.get("size"),
+                        "architecture": details.get("architecture"),
+                        "description": details.get("description"),
+                        "depends": details.get("depends", []),
+                    }
+                )
             packages.sort(key=lambda pkg: pkg["name"].lower())
             return {
                 "manager": manager,
@@ -487,6 +509,374 @@ class RouterManagementService:
         self._packages_cache = data
         self._packages_cache_at = time.monotonic()
         return data
+
+    @staticmethod
+    def _parse_opkg_stanzas(text: str) -> list[dict[str, str]]:
+        """Parse ``opkg status``/``opkg info`` stanzas into key/value dicts."""
+        stanzas: list[dict[str, str]] = []
+        current: dict[str, str] = {}
+        last_key: str | None = None
+        for raw in text.splitlines():
+            line = raw.rstrip()
+            if not line.strip():
+                if current:
+                    stanzas.append(current)
+                    current = {}
+                last_key = None
+                continue
+            if line[:1] in (" ", "\t"):
+                if last_key is not None and last_key in current:
+                    current[last_key] = f"{current[last_key]} {line.strip()}"
+                continue
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            last_key = key
+            current[key] = value.strip()
+        if current:
+            stanzas.append(current)
+        return stanzas
+
+    @staticmethod
+    def _parse_opkg_status(text: str) -> dict[str, dict[str, Any]]:
+        """Map package name -> {version, architecture, size, depends, description}."""
+        result: dict[str, dict[str, Any]] = {}
+        for stanza in RouterManagementService._parse_opkg_stanzas(text):
+            name = stanza.get("Package", "")
+            if not name:
+                continue
+            size_raw = stanza.get("Installed-Size", "")
+            result[name] = {
+                "version": stanza.get("Version", ""),
+                "architecture": stanza.get("Architecture", ""),
+                "size": int(size_raw) if size_raw.isdigit() else None,
+                "depends": [
+                    dep.strip() for dep in stanza.get("Depends", "").split(",") if dep.strip()
+                ],
+                "description": stanza.get("Description", ""),
+                "section": stanza.get("Section", ""),
+            }
+        return result
+
+    @staticmethod
+    def _sh_quote(value: str) -> str:
+        """Single-quote a shell argument safely."""
+        return "'" + value.replace("'", "'\\''") + "'"
+
+    _PKG_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._+@~/-]{1,128}$")
+
+    def _pkg_run(self, command: str, timeout: float = 300.0) -> CommandResult:
+        transport = self.open()
+        try:
+            return self.run(transport, command, timeout=timeout)
+        finally:
+            transport.close()
+
+    def _pkg_manager(self) -> str:
+        transport = self.open()
+        try:
+            return self.detect_package_manager(transport)
+        finally:
+            transport.close()
+
+    def feeds(self) -> dict[str, Any]:
+        """Return the configured package feeds and the last list-update time."""
+        manager = self._pkg_manager()
+        feeds: list[dict[str, str]] = []
+        last_update: int | None = None
+        if manager == "opkg":
+            for path in ("/etc/opkg/distfeeds.conf", "/etc/opkg/customfeeds.conf"):
+                text = self._pkg_run(f"cat {path} 2>/dev/null", timeout=30.0).stdout
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        feeds.append(
+                            {
+                                "type": parts[0],
+                                "name": parts[1],
+                                "url": parts[2],
+                                "source": path,
+                            }
+                        )
+            marker = self._pkg_run(
+                "ls -1t /var/opkg-lists/* 2>/dev/null | head -1",
+                timeout=30.0,
+            ).stdout.strip()
+            if marker:
+                mtime = self._pkg_run(
+                    f"stat -c %Y {self._sh_quote(marker)} 2>/dev/null",
+                    timeout=30.0,
+                ).stdout.strip()
+                if mtime.isdigit():
+                    last_update = int(mtime)
+        elif manager == "apk":
+            text = self._pkg_run("cat /etc/apk/repositories 2>/dev/null", timeout=30.0).stdout
+            for index, line in enumerate(text.splitlines()):
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                feeds.append(
+                    {
+                        "type": "src",
+                        "name": f"repo{index}",
+                        "url": line,
+                        "source": "/etc/apk/repositories",
+                    }
+                )
+            marker = self._pkg_run(
+                "ls -1t /var/cache/apk/*APKINDEX* 2>/dev/null | head -1",
+                timeout=30.0,
+            ).stdout.strip()
+            if marker:
+                mtime = self._pkg_run(
+                    f"stat -c %Y {self._sh_quote(marker)} 2>/dev/null",
+                    timeout=30.0,
+                ).stdout.strip()
+                if mtime.isdigit():
+                    last_update = int(mtime)
+        else:
+            raise RouterManagementError("No supported package manager found.")
+        return {
+            "manager": manager,
+            "count": len(feeds),
+            "last_update": last_update,
+            "feeds": feeds,
+        }
+
+    def update_feeds(self) -> dict[str, Any]:
+        """Refresh the package index lists from all configured feeds."""
+        manager = self._pkg_manager()
+        if manager == "apk":
+            result = self._pkg_run("apk update", timeout=600.0)
+        elif manager == "opkg":
+            result = self._pkg_run("opkg update", timeout=600.0)
+        else:
+            raise RouterManagementError("No supported package manager found.")
+        self._opkg_list_text = ""
+        self._opkg_list_at = 0.0
+        return {
+            "ok": result.ok,
+            "message": (
+                "Package lists updated."
+                if result.ok
+                else "Package lists could not be updated."
+            ),
+            "detail": result.to_dict(),
+        }
+
+    def search_packages(self, query: str, limit: int = 200) -> dict[str, Any]:
+        """Search the repository for available packages by name or description."""
+        needle = query.strip()
+        if not needle:
+            raise RouterManagementError("A search query is required.")
+        manager = self._pkg_manager()
+        results: list[dict[str, Any]] = []
+        if manager == "apk":
+            text = self._pkg_run(
+                f"apk search -v -q {self._sh_quote(needle)}",
+                timeout=60.0,
+            ).stdout
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                name, version = RouterManagementService._split_apk_pkgid(line.split()[0])
+                results.append({"name": name, "version": version, "description": ""})
+        elif manager == "opkg":
+            now = time.monotonic()
+            if not self._opkg_list_text or (now - self._opkg_list_at) >= PACKAGE_LIST_TTL_S:
+                self._opkg_list_text = self._pkg_run("opkg list", timeout=300.0).stdout
+                self._opkg_list_at = time.monotonic()
+            haystack = needle.lower()
+            for line in self._opkg_list_text.splitlines():
+                name, sep, rest = line.partition(" - ")
+                if not sep:
+                    continue
+                name = name.strip()
+                version = rest.partition(" - ")[0].strip()
+                description = rest.partition(" - ")[2].strip()
+                if haystack in name.lower() or haystack in description.lower():
+                    results.append(
+                        {"name": name, "version": version, "description": description}
+                    )
+        else:
+            raise RouterManagementError("No supported package manager found.")
+        return {
+            "query": needle,
+            "manager": manager,
+            "count": len(results[:limit]),
+            "results": results[:limit],
+        }
+
+    @staticmethod
+    def _parse_apk_info(text: str, name: str) -> dict[str, Any]:
+        """Best-effort parse of ``apk info -a <name>`` output."""
+        version = ""
+        description = ""
+        installed_size: int | None = None
+        download_size: int | None = None
+        depends: list[str] = []
+        pending: str | None = None
+        for raw in text.splitlines():
+            line = raw.rstrip()
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("Installed:"):
+                value = stripped.partition(":")[2].strip()
+                if value.isdigit():
+                    installed_size = int(value)
+                pending = None
+                continue
+            if stripped.startswith("Size:"):
+                value = stripped.partition(":")[2].strip()
+                if value.isdigit():
+                    download_size = int(value)
+                pending = None
+                continue
+            if line[:1] in (" ", "\t"):
+                if pending == "description":
+                    description = f"{description} {stripped}".strip()
+                elif pending == "depends" and not stripped.startswith(("so:", "pc:", "rr:")):
+                    depends.append(stripped)
+                continue
+            if stripped.endswith("description:"):
+                pending = "description"
+                header = stripped.rpartition(":")[0].strip()
+                if header:
+                    candidate, parsed_version = RouterManagementService._split_apk_pkgid(header)
+                    if candidate == name and not version:
+                        version = parsed_version
+            elif stripped.endswith("depends:"):
+                pending = "depends"
+                value = stripped.rpartition(":")[2].strip()
+                if value:
+                    depends.append(value)
+            else:
+                pending = None
+        return {
+            "version": version,
+            "architecture": "",
+            "description": description,
+            "homepage": "",
+            "maintainer": "",
+            "license": "",
+            "depends": [dep for dep in depends if dep],
+            "section": None,
+            "installed_size": installed_size,
+            "download_size": download_size,
+        }
+
+    def package_details(self, name: str) -> dict[str, Any]:
+        """Return detailed metadata for a single package."""
+        if not self._PKG_NAME_PATTERN.match(name):
+            raise RouterManagementError("Invalid package name.")
+        manager = self._pkg_manager()
+        if manager == "opkg":
+            text = self._pkg_run(f"opkg info {self._sh_quote(name)}", timeout=60.0).stdout
+            for stanza in self._parse_opkg_stanzas(text):
+                if stanza.get("Package") != name:
+                    continue
+                size_raw = stanza.get("Size", "")
+                installed_raw = stanza.get("Installed-Size", "")
+                return {
+                    "name": name,
+                    "version": stanza.get("Version", ""),
+                    "architecture": stanza.get("Architecture", ""),
+                    "description": stanza.get("Description", ""),
+                    "homepage": stanza.get("Homepage", ""),
+                    "maintainer": stanza.get("Maintainer", ""),
+                    "license": stanza.get("License", ""),
+                    "depends": [
+                        dep.strip()
+                        for dep in stanza.get("Depends", "").split(",")
+                        if dep.strip()
+                    ],
+                    "section": stanza.get("Section", ""),
+                    "installed_size": (
+                        int(installed_raw) if installed_raw.isdigit() else None
+                    ),
+                    "download_size": int(size_raw) if size_raw.isdigit() else None,
+                }
+            raise RouterManagementError(f"Package '{name}' was not found.")
+        if manager == "apk":
+            text = self._pkg_run(f"apk info -a {self._sh_quote(name)}", timeout=60.0).stdout
+            if not text.strip():
+                raise RouterManagementError(f"Package '{name}' was not found.")
+            return self._parse_apk_info(text, name)
+        raise RouterManagementError("No supported package manager found.")
+
+    def package_install(self, name: str) -> dict[str, Any]:
+        return self._pkg_mutate("installed", name, "opkg install", "apk add")
+
+    def package_remove(self, name: str) -> dict[str, Any]:
+        return self._pkg_mutate("removed", name, "opkg remove", "apk del")
+
+    def package_upgrade(self, name: str) -> dict[str, Any]:
+        return self._pkg_mutate("upgraded", name, "opkg upgrade", "apk upgrade")
+
+    def package_reinstall(self, name: str) -> dict[str, Any]:
+        return self._pkg_mutate("reinstalled", name, "opkg install --force-reinstall", "apk fix")
+
+    def _pkg_mutate(self, verb: str, name: str, opkg_cmd: str, apk_cmd: str) -> dict[str, Any]:
+        """Run a package mutation and bust the inventory cache on success."""
+        if not self._PKG_NAME_PATTERN.match(name):
+            raise RouterManagementError("Invalid package name.")
+        manager = self._pkg_manager()
+        if manager == "opkg":
+            result = self._pkg_run(f"{opkg_cmd} {self._sh_quote(name)}", timeout=600.0)
+        elif manager == "apk":
+            result = self._pkg_run(f"{apk_cmd} {self._sh_quote(name)}", timeout=600.0)
+        else:
+            raise RouterManagementError("No supported package manager found.")
+        if result.ok:
+            self._packages_cache = {}
+            self._packages_cache_at = 0.0
+        return {
+            "ok": result.ok,
+            "message": (
+                f"Package '{name}' {verb}."
+                if result.ok
+                else f"Package '{name}' could not be {verb}."
+            ),
+            "detail": result.to_dict(),
+        }
+
+    def run_packages_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        name: str | None = None,
+    ) -> ManagementJob:
+        """Execute a package operation inside a tracked job."""
+        self._jobs.transition(job_id, "running", message="Running package operation…")
+        try:
+            if action == "install":
+                result = self.package_install(name or "")
+            elif action == "remove":
+                result = self.package_remove(name or "")
+            elif action == "upgrade":
+                result = self.package_upgrade(name or "")
+            elif action == "reinstall":
+                result = self.package_reinstall(name or "")
+            elif action == "update-feeds":
+                result = self.update_feeds()
+            else:
+                raise RouterManagementError(f"Unsupported package action: {action}")
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Package action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"Package operation failed: {exc}",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
 
     # -- logs -------------------------------------------------------------- #
 

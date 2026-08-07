@@ -6,6 +6,10 @@ export type ManagementPackage = {
   name: string;
   version: string;
   upgrade: string | null;
+  size: number | null;
+  architecture: string | null;
+  description: string | null;
+  depends: string[];
 };
 
 export type PackageInventory = {
@@ -15,6 +19,49 @@ export type PackageInventory = {
   generated_at: string;
   packages: ManagementPackage[];
 };
+
+export type PackageFeed = {
+  type: string;
+  name: string;
+  url: string;
+  source: string;
+};
+
+export type PackageFeeds = {
+  manager: PackageManager;
+  count: number;
+  last_update: number | null;
+  feeds: PackageFeed[];
+};
+
+export type PackageSearchResult = {
+  name: string;
+  version: string;
+  description: string;
+};
+
+export type PackageSearchResponse = {
+  query: string;
+  manager: PackageManager;
+  count: number;
+  results: PackageSearchResult[];
+};
+
+export type PackageDetails = {
+  name: string;
+  version: string;
+  architecture: string | null;
+  description: string;
+  homepage: string;
+  maintainer: string;
+  license: string;
+  depends: string[];
+  section: string | null;
+  installed_size: number | null;
+  download_size: number | null;
+};
+
+export type PackageAction = "install" | "remove" | "upgrade" | "reinstall";
 
 export type ManagementLogEntry = {
   raw: string;
@@ -30,7 +77,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system" | "packages";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -66,6 +113,7 @@ export type JobRequest = {
   timezone?: string;
   language?: string;
   notes?: string;
+  name?: string;
 };
 
 async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
@@ -92,6 +140,38 @@ export function fetchPackages(refresh = false, signal?: AbortSignal): Promise<Pa
 
 export function refreshPackages(signal?: AbortSignal): Promise<PackageInventory> {
   return request<PackageInventory>("/router/management/packages/refresh", { method: "POST" }, signal);
+}
+
+export function fetchPackageFeeds(signal?: AbortSignal): Promise<PackageFeeds> {
+  return request<PackageFeeds>("/router/management/packages/feeds", undefined, signal);
+}
+
+export function searchRepository(query: string, signal?: AbortSignal): Promise<PackageSearchResponse> {
+  return request<PackageSearchResponse>(
+    `/router/management/packages/search?q=${encodeURIComponent(query)}`,
+    undefined,
+    signal,
+  );
+}
+
+export function fetchPackageDetails(name: string, signal?: AbortSignal): Promise<PackageDetails> {
+  return request<PackageDetails>(
+    `/router/management/packages/${encodeURIComponent(name)}`,
+    undefined,
+    signal,
+  );
+}
+
+export function runPackageAction(
+  action: PackageAction,
+  name: string,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "packages", action, name, confirmed: true }, signal);
+}
+
+export function updatePackageFeeds(signal?: AbortSignal): Promise<ManagementJob> {
+  return startJob({ kind: "packages", action: "update-feeds", confirmed: true }, signal);
 }
 
 export function fetchManagementLogs(lines = 500, signal?: AbortSignal): Promise<LogResponse> {
