@@ -67,6 +67,10 @@ export type NetworkInterface = {
   vlan_id: number | null;
   gateway: string | null;
   addresses: NetworkAddress[];
+  bridge_members: string[];
+  stp_enabled: boolean | null;
+  forward_delay: number | null;
+  uptime_seconds: number | null;
 };
 
 export type NetworkStatus = {

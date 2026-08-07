@@ -88,6 +88,11 @@ class NetworkInterface(BaseModel):
     vlan_id: int | None = None
     gateway: str | None = None
     addresses: list[NetworkAddress] = Field(default_factory=list)
+    bridge_members: list[str] = Field(default_factory=list)
+    stp_enabled: bool | None = None
+    forward_delay: int | None = None
+    #: Best-effort connection uptime in seconds when netifd reports it.
+    uptime_seconds: int | None = None
 
 
 class NetworkStatus(BaseModel):

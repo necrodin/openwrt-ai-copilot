@@ -75,6 +75,22 @@ class NetworkCollector(Collector):
                     is_bridge=bool(device and device.startswith("br-")),
                     vlan_id=_vlan_id(device or ""),
                     addresses=[_address(a) for a in entry.get("addresses", [])],
+                    bridge_members=(
+                        [
+                            p.get("ifname") or p.get("name") or ""
+                            for p in dev.get("ports", [])
+                            if isinstance(p, dict) and (p.get("ifname") or p.get("name"))
+                        ]
+                        if dev and dev.get("type") == "bridge"
+                        else []
+                    ),
+                    stp_enabled=dev.get("stp") if dev else None,
+                    forward_delay=(
+                        int(dev["forward_delay"])
+                        if dev and dev.get("forward_delay")
+                        else None
+                    ),
+                    uptime_seconds=int(entry["uptime"]) if entry.get("uptime") else None,
                 )
             )
 

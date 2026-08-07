@@ -11,6 +11,7 @@ import {
   type DhcpHostPayload,
   type JobRequest,
   type ManagementJob,
+  type NetworkAction,
 } from "@/lib/router-management";
 
 const TERMINAL_STATUSES = new Set(["succeeded", "failed"]);
@@ -37,6 +38,7 @@ export type ManagementJobRunner = {
   editDhcpHost: (payload: DhcpHostPayload) => Promise<ManagementJob>;
   deleteDhcpHost: (section: string) => Promise<ManagementJob>;
   toggleDhcpHost: (section: string, enabled: boolean) => Promise<ManagementJob>;
+  runNetwork: (action: NetworkAction, section: string) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
   stageRestore: (file: File) => Promise<ManagementJob>;
@@ -173,6 +175,12 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runNetwork = useCallback(
+    (action: NetworkAction, section: string) =>
+      begin({ kind: "network", action, section, confirmed: true }, true),
+    [begin],
+  );
+
   const createBackup = useCallback(() => begin({ kind: "backup", confirmed: false }, true), [begin]);
 
   const createBundle = useCallback(() => begin({ kind: "bundle", confirmed: false }, true), [begin]);
@@ -257,6 +265,7 @@ export function useManagementJob(): ManagementJobRunner {
     editDhcpHost,
     deleteDhcpHost,
     toggleDhcpHost,
+    runNetwork,
     createBackup,
     createBundle,
     stageRestore,

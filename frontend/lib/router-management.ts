@@ -30,7 +30,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -161,6 +161,21 @@ export function runDhcpHost(
     { kind: "dhcp", action, confirmed: true, ...payload },
     signal,
   );
+}
+
+export type NetworkAction =
+  | "interface-restart"
+  | "interface-renew"
+  | "interface-release"
+  | "interface-enable"
+  | "interface-disable";
+
+export function runNetworkJob(
+  action: NetworkAction,
+  section: string,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "network", action, section, confirmed: true }, signal);
 }
 
 export function jobArtifactUrl(jobId: string): string {

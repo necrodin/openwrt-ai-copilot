@@ -65,6 +65,7 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
     "restart-vpn": ("/etc/init.d/openvpn restart", False),
     "reload-dhcp": ("/etc/init.d/dnsmasq reload", False),
     "restart-dhcp": ("/etc/init.d/dnsmasq restart", False),
+    "reload-network": ("/etc/init.d/network reload", False),
 }
 
 ACTION_LABELS: dict[str, str] = {
@@ -81,10 +82,21 @@ ACTION_LABELS: dict[str, str] = {
     "restart-vpn": "Restart VPN",
     "reload-dhcp": "Reload DHCP",
     "restart-dhcp": "Restart DHCP",
+    "reload-network": "Reload Network",
 }
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
-JobKind = Literal["action", "backup", "bundle", "restore", "firewall", "wireless", "vpn"]
+JobKind = Literal[
+    "action",
+    "backup",
+    "bundle",
+    "restore",
+    "firewall",
+    "wireless",
+    "vpn",
+    "dhcp",
+    "network",
+]
 
 _EXIT_SENTINEL = "__AI_EXIT__="
 
@@ -824,6 +836,117 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"DHCP change failed: {exc}",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- network ----------------------------------------------------------- #
+
+    _IFACE_PATTERN = re.compile(r"^[A-Za-z0-9_@.\-]+$")
+
+    def _net_run(self, command: str) -> CommandResult:
+        transport = self.open()
+        try:
+            return self.run(transport, command, timeout=90.0)
+        finally:
+            transport.close()
+
+    def net_interface_restart(self, *, section: str) -> dict[str, Any]:
+        """Restart one network interface (ifdown + ifup)."""
+        if not section or not self._IFACE_PATTERN.match(section):
+            raise RouterManagementError("Invalid interface name.")
+        result = self._net_run(f"ifdown {section} 2>/dev/null; ifup {section}; true")
+        return {
+            "ok": result.ok,
+            "message": (
+                f"Interface {section} restarted."
+                if result.ok
+                else f"Interface {section} could not be restarted."
+            ),
+            "detail": result.to_dict(),
+        }
+
+    def net_interface_renew(self, *, section: str) -> dict[str, Any]:
+        """Renew the DHCP lease on an interface."""
+        if not section or not self._IFACE_PATTERN.match(section):
+            raise RouterManagementError("Invalid interface name.")
+        result = self._net_run(f"ifdown {section} 2>/dev/null; ifup {section}; true")
+        return {
+            "ok": result.ok,
+            "message": (
+                f"DHCP lease on {section} renewed."
+                if result.ok
+                else f"DHCP lease on {section} could not be renewed."
+            ),
+            "detail": result.to_dict(),
+        }
+
+    def net_interface_release(self, *, section: str) -> dict[str, Any]:
+        """Release the DHCP lease and bring the interface down."""
+        if not section or not self._IFACE_PATTERN.match(section):
+            raise RouterManagementError("Invalid interface name.")
+        result = self._net_run(f"ifdown {section}; true")
+        return {
+            "ok": result.ok,
+            "message": (
+                f"DHCP lease on {section} released."
+                if result.ok
+                else f"DHCP lease on {section} could not be released."
+            ),
+            "detail": result.to_dict(),
+        }
+
+    def net_interface_set_enabled(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable a persistent ``network`` interface and reload the network."""
+        if not section or not self._IFACE_PATTERN.match(section):
+            raise RouterManagementError("Invalid interface name.")
+        base = (
+            f"uci delete network.{section}.disabled"
+            if enabled
+            else f"uci set network.{section}.disabled='1'"
+        )
+        result = self._net_run(f"{base} && uci commit network && /etc/init.d/network reload")
+        label = "enabled" if enabled else "disabled"
+        return {
+            "ok": result.ok,
+            "message": (
+                f"Interface {section} {label} and the network was reloaded."
+                if result.ok
+                else f"Interface {section} could not be {label}."
+            ),
+            "detail": result.to_dict(),
+        }
+
+    def run_network_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        section: str | None,
+        enabled: bool = False,
+    ) -> ManagementJob:
+        """Execute a network interface operation inside a tracked job."""
+        self._jobs.transition(job_id, "running", message="Applying network change…")
+        try:
+            if action == "interface-restart":
+                result = self.net_interface_restart(section=section or "")
+            elif action == "interface-renew":
+                result = self.net_interface_renew(section=section or "")
+            elif action == "interface-release":
+                result = self.net_interface_release(section=section or "")
+            elif action == "interface-enable":
+                result = self.net_interface_set_enabled(section=section or "", enabled=True)
+            elif action == "interface-disable":
+                result = self.net_interface_set_enabled(section=section or "", enabled=False)
+            else:
+                raise RouterManagementError(f"Unsupported network action: {action}")
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Network action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"Network command failed: {exc}",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 

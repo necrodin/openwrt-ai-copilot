@@ -86,6 +86,34 @@ export function formatDuration(seconds: number): string {
   return `${minutes}m`;
 }
 
+export function ipv4PrefixToNetmask(prefix: number): string {
+  const bits = Math.max(0, Math.min(32, Math.floor(prefix)));
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return [
+    (mask >>> 24) & 255,
+    (mask >>> 16) & 255,
+    (mask >>> 8) & 255,
+    mask & 255,
+  ].join(".");
+}
+
+export function interfaceAddresses(
+  iface: NetworkInterface,
+  family: "ipv4" | "ipv6",
+): string[] {
+  return iface.addresses
+    .filter((address) => address.family === family && address.address)
+    .map((address) => address.address);
+}
+
+export function interfaceCidr(iface: NetworkInterface): string | null {
+  const ipv4 = iface.addresses.find((address) => address.family === "ipv4" && address.address);
+  if (!ipv4) {
+    return null;
+  }
+  return `${ipv4.address}/${ipv4.prefix || 24}`;
+}
+
 export function formatClock(iso: string | null | undefined): string {
   if (!iso) {
     return "—";

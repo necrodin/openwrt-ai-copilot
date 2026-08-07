@@ -34,7 +34,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["router"])
 
-JOB_KINDS = {"action", "backup", "bundle", "restore", "firewall", "wireless", "vpn", "dhcp"}
+JOB_KINDS = {
+    "action",
+    "backup",
+    "bundle",
+    "restore",
+    "firewall",
+    "wireless",
+    "vpn",
+    "dhcp",
+    "network",
+}
 CONFIRMED_KINDS = {"action", "restore"}
 
 
@@ -206,6 +216,29 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                 hostname=payload.hostname,
                 ip=payload.ip,
                 mac=payload.mac,
+            )
+        )
+        return _job_dict(job)
+
+    if payload.kind == "network":
+        if not payload.action:
+            raise HTTPException(status_code=422, detail="A network action is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to change "
+                    "the network on the router."
+                ),
+            )
+        job = service.job_store.create("network", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_network_job,
+                job.id,
+                action=payload.action,
+                section=payload.section,
+                enabled=payload.enabled,
             )
         )
         return _job_dict(job)
