@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import gzip
 import ipaddress
+import json
 import logging
 import re
 import threading
@@ -73,6 +74,19 @@ ACTION_COMMANDS: dict[str, tuple[str, bool]] = {
         "/etc/init.d/$s restart >/dev/null 2>&1; done; true",
         False,
     ),
+    "restart-ntp": ("/etc/init.d/sysntpd restart", False),
+    "sync-time": (
+        "ntpd -q -n -p 1.openwrt.pool.ntp.org 2>/dev/null || "
+        "ntpd -q -n 2>/dev/null; hwclock -s 2>/dev/null; true",
+        _ASYNC_DISPATCH,
+    ),
+    # Erase the persisted /etc/config tree; the next boot re-generates factory
+    # defaults. Dispatched in the background so the SSH channel survives.
+    "factory-reset": (
+        "for f in /etc/config/*; do [ -f \"$f\" ] && rm -f \"$f\"; done; "
+        "sync; reboot",
+        _ASYNC_DISPATCH,
+    ),
 }
 
 ACTION_LABELS: dict[str, str] = {
@@ -91,6 +105,9 @@ ACTION_LABELS: dict[str, str] = {
     "restart-dhcp": "Restart DHCP",
     "reload-network": "Reload Network",
     "restart-monitoring": "Restart Monitoring",
+    "restart-ntp": "Restart NTP",
+    "sync-time": "Sync Time",
+    "factory-reset": "Factory Reset",
 }
 
 JobStatus = Literal["queued", "running", "succeeded", "failed"]
@@ -104,6 +121,7 @@ JobKind = Literal[
     "vpn",
     "dhcp",
     "network",
+    "system",
 ]
 
 _EXIT_SENTINEL = "__AI_EXIT__="
@@ -1136,6 +1154,280 @@ class RouterManagementService:
             }
         finally:
             transport.close()
+
+    # -- system ------------------------------------------------------------ #
+
+    # Collect every read-only system field in one SSH round trip, tagging each
+    # block so the parser can attribute output unambiguously.
+    _SYSTEM_GATHER_CMD = (
+        "echo '==release=='; cat /etc/openwrt_release 2>/dev/null; "
+        "echo '==boardjson=='; cat /etc/board.json 2>/dev/null; "
+        "echo '==hostname=='; uci get system.@system[0].hostname 2>/dev/null "
+        "|| hostname 2>/dev/null; "
+        "echo '==timezone=='; uci get system.@system[0].timezone 2>/dev/null; "
+        "echo '==zonename=='; uci get system.@system[0].zonename 2>/dev/null; "
+        "echo '==language=='; uci get system.@system[0].language 2>/dev/null; "
+        "echo '==notes=='; uci get system.@system[0].notes 2>/dev/null; "
+        "echo '==localtime=='; date '+%Y-%m-%dT%H:%M:%S %z'; "
+        "echo '==epoch=='; date +%s; "
+        "echo '==uptime=='; cat /proc/uptime 2>/dev/null | cut -d' ' -f1; "
+        "echo '==endian=='; printf '\\x01\\x00' | od -An -tx2 | tr -d ' \\n'; echo; "
+        "echo '==mtd=='; cat /proc/mtd 2>/dev/null; "
+        "echo '==mounts=='; cat /proc/mounts 2>/dev/null; "
+        "echo '==dtnode=='; cat /proc/device-tree/model 2>/dev/null; "
+        "echo '==uname=='; uname -s -r -m 2>/dev/null; "
+        "echo '==ntpen=='; uci get system.ntp.enabled 2>/dev/null; "
+        "echo '==ntpsrv=='; uci get system.ntp.server 2>/dev/null; "
+        "echo '==ntpinfo=='; ubus call system ntpinfo 2>/dev/null; "
+        "true"
+    )
+
+    _SYSTEM_MARKERS = frozenset(
+        {
+            "release", "boardjson", "hostname", "timezone", "zonename",
+            "language", "notes", "localtime", "epoch", "uptime", "endian",
+            "mtd", "mounts", "dtnode", "uname", "ntpen", "ntpsrv", "ntpinfo",
+        }
+    )
+
+    def _system_gather(self, transport: SSHTransport) -> dict[str, str]:
+        """Run the system gather command and split stdout into tagged blocks."""
+        result = self.run(transport, self._SYSTEM_GATHER_CMD, timeout=60.0)
+        sections: dict[str, str] = {}
+        current: str | None = None
+        buffer: list[str] = []
+        for line in result.stdout.splitlines():
+            marker = line[2:-2] if line.startswith("==") and line.endswith("==") else None
+            if marker in self._SYSTEM_MARKERS:
+                if current is not None:
+                    sections[current] = "\n".join(buffer).strip()
+                current = marker
+                buffer = []
+            elif current is not None:
+                buffer.append(line)
+        if current is not None:
+            sections[current] = "\n".join(buffer).strip()
+        return sections
+
+    @staticmethod
+    def _release_fields(text: str) -> dict[str, str]:
+        fields: dict[str, str] = {}
+        for line in text.splitlines():
+            match = re.match(r"^([A-Z_]+)='?([^']*)'?", line)
+            if match:
+                fields[match.group(1)] = match.group(2)
+        return fields
+
+    def system_info(self) -> dict[str, Any]:
+        """Return a read-only snapshot of the router's system configuration."""
+        transport = self.open()
+        try:
+            gathered = self._system_gather(transport)
+
+            release = self._release_fields(gathered.get("release", ""))
+            board: dict[str, Any] = {}
+            board_text = gathered.get("boardjson", "")
+            if board_text:
+                try:
+                    board = json.loads(board_text)
+                except json.JSONDecodeError:
+                    board = {}
+            board_release = board.get("release") or {}
+
+            hostname = gathered.get("hostname", "").splitlines()[0].strip() or ""
+            architecture = release.get("DISTRIB_ARCH") or ""
+            target = release.get("DISTRIB_TARGET") or ""
+
+            epoch_raw = gathered.get("epoch", "").strip()
+            uptime_raw = gathered.get("uptime", "").strip()
+            epoch = int(epoch_raw) if epoch_raw.isdigit() else None
+            uptime = float(uptime_raw) if uptime_raw else None
+
+            endian_raw = gathered.get("endian", "").strip()
+            if endian_raw == "0001":
+                endianness = "little"
+            elif endian_raw == "0100":
+                endianness = "big"
+            else:
+                endianness = None
+
+            flash_bytes: int | None = None
+            for line in gathered.get("mtd", "").splitlines():
+                parts = line.split(":")
+                if len(parts) >= 3:
+                    try:
+                        flash_bytes = (flash_bytes or 0) + int(parts[1].strip(), 16)
+                    except ValueError:
+                        continue
+
+            root_fs: str | None = None
+            overlay_fs: str | None = None
+            for line in gathered.get("mounts", "").splitlines():
+                tokens = line.split()
+                if len(tokens) >= 3:
+                    mountpoint, filesystem = tokens[1], tokens[2]
+                    if mountpoint == "/":
+                        root_fs = filesystem
+                    elif mountpoint == "/overlay":
+                        overlay_fs = filesystem
+
+            ntp_servers = [line for line in gathered.get("ntpsrv", "").splitlines() if line.strip()]
+            ntp_offset: float | None = None
+            ntp_text = gathered.get("ntpinfo", "").strip()
+            if ntp_text:
+                try:
+                    ntp_data = json.loads(ntp_text)
+                    raw_offset = ntp_data.get("offset")
+                    if isinstance(raw_offset, (int, float)):
+                        ntp_offset = float(raw_offset)
+                except json.JSONDecodeError:
+                    ntp_offset = None
+
+            firmware = release.get("DISTRIB_DESCRIPTION") or ""
+            version = release.get("DISTRIB_REVISION") or board_release.get("revision") or ""
+
+            now = datetime.now(UTC)
+            return {
+                "hostname": hostname,
+                "model": (
+                    board.get("model", {}).get("name")
+                    or board.get("model", {}).get("id")
+                    or ""
+                ),
+                "board": (
+                    board.get("board", {}).get("name")
+                    or board.get("board_name")
+                    or ""
+                ),
+                "vendor": board.get("system") or "",
+                "architecture": architecture,
+                "target": target,
+                "firmware": firmware,
+                "release": (
+                    release.get("DISTRIB_RELEASE")
+                    or board_release.get("version")
+                    or ""
+                ),
+                "revision": version,
+                "build_date": board_release.get("builddate") or "",
+                "kernel": board.get("kernel") or "".join(
+                    gathered.get("uname", "").splitlines()[0].split()[1:2]
+                ),
+                "machine": (
+                    " ".join(gathered.get("uname", "").splitlines()[0].split()[1:])
+                    if gathered.get("uname")
+                    else ""
+                ),
+                "device_tree": gathered.get("dtnode", "").splitlines()[0].strip() or "",
+                "endianness": endianness,
+                "flash_bytes": flash_bytes,
+                "root_filesystem": root_fs,
+                "overlay_filesystem": overlay_fs,
+                "timezone": gathered.get("timezone", "").splitlines()[0].strip() or "",
+                "zonename": gathered.get("zonename", "").splitlines()[0].strip() or "",
+                "language": gathered.get("language", "").splitlines()[0].strip() or "",
+                "notes": gathered.get("notes", "").strip() or "",
+                "local_time": gathered.get("localtime", "").splitlines()[0].strip() or "",
+                "epoch": epoch,
+                "uptime_seconds": uptime,
+                "boot_time": (epoch - uptime) if epoch is not None and uptime is not None else None,
+                "ntp": {
+                    "enabled": gathered.get("ntpen", "").strip() in ("1", "yes", "true"),
+                    "servers": ntp_servers,
+                    "offset": ntp_offset,
+                },
+                "generated_at": now.isoformat(),
+            }
+        finally:
+            transport.close()
+
+    _HOSTNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.\-]{1,63}$")
+    _TIMEZONE_PATTERN = re.compile(r"^[A-Za-z0-9_+./\-]{1,64}$")
+
+    def system_set_config(
+        self,
+        *,
+        hostname: str | None,
+        timezone: str | None,
+        language: str | None,
+        notes: str | None,
+    ) -> dict[str, Any]:
+        """Apply hostname/timezone/language/notes via ``uci`` and commit."""
+        if hostname is not None and not self._HOSTNAME_PATTERN.match(hostname):
+            raise RouterManagementError("Invalid hostname.")
+        if timezone is not None and not self._TIMEZONE_PATTERN.match(timezone):
+            raise RouterManagementError("Invalid timezone.")
+
+        commands: list[str] = []
+        hostname_value: str | None = None
+        if hostname is not None:
+            commands.append(f"uci set system.@system[0].hostname='{hostname}'")
+            hostname_value = hostname
+        if timezone is not None:
+            commands.append(f"uci set system.@system[0].timezone='{timezone}'")
+        if language is not None:
+            commands.append(f"uci set system.@system[0].language='{language}'")
+        if notes is not None:
+            if notes:
+                commands.append(f"uci set system.@system[0].notes='{notes}'")
+            else:
+                commands.append("uci delete system.@system[0].notes")
+
+        if not commands:
+            return {"ok": True, "message": "No changes provided.", "detail": None}
+
+        if hostname_value is not None:
+            commands.append(f"echo '{hostname_value}' > /proc/sys/kernel/hostname")
+        commands.append("uci commit system")
+        commands.append("/etc/init.d/sysntpd restart")
+
+        transport = self.open()
+        try:
+            script = " && ".join(commands) + " || true"
+            result = self.run(transport, script, timeout=90.0)
+            return {
+                "ok": result.ok,
+                "message": (
+                    "System settings saved and applied."
+                    if result.ok
+                    else "System settings could not be saved."
+                ),
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def run_system_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        hostname: str | None = None,
+        timezone: str | None = None,
+        language: str | None = None,
+        notes: str | None = None,
+    ) -> ManagementJob:
+        """Execute a system configuration change inside a tracked job."""
+        self._jobs.transition(job_id, "running", message="Applying system settings…")
+        try:
+            if action != "save-config":
+                raise RouterManagementError(f"Unsupported system action: {action}")
+            result = self.system_set_config(
+                hostname=hostname,
+                timezone=timezone,
+                language=language,
+                notes=notes,
+            )
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("System action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"System settings could not be saved: {exc}",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
 
     # -- backup ------------------------------------------------------------ #
 

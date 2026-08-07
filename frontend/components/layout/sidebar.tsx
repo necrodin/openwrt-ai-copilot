@@ -47,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/vpn", label: "VPN", icon: Lock },
   { href: "/monitoring", label: "Monitoring", icon: Activity },
   { href: "/dhcp", label: "DHCP", icon: Server },
+  { href: "/system", label: "System", icon: Settings },
   { href: "/chat", label: "AI Chat", icon: MessageSquareText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

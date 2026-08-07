@@ -7,11 +7,13 @@ import {
   downloadJobArtifact,
   fetchJob,
   readFileAsBase64,
+  saveSystemConfig,
   startJob,
   type DhcpHostPayload,
   type JobRequest,
   type ManagementJob,
   type NetworkAction,
+  type SystemConfig,
 } from "@/lib/router-management";
 
 const TERMINAL_STATUSES = new Set(["succeeded", "failed"]);
@@ -39,6 +41,7 @@ export type ManagementJobRunner = {
   deleteDhcpHost: (section: string) => Promise<ManagementJob>;
   toggleDhcpHost: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runNetwork: (action: NetworkAction, section: string) => Promise<ManagementJob>;
+  saveSystem: (config: SystemConfig) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
   stageRestore: (file: File) => Promise<ManagementJob>;
@@ -181,6 +184,11 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const saveSystem = useCallback(
+    (config: SystemConfig) => saveSystemConfig(config),
+    [],
+  );
+
   const createBackup = useCallback(() => begin({ kind: "backup", confirmed: false }, true), [begin]);
 
   const createBundle = useCallback(() => begin({ kind: "bundle", confirmed: false }, true), [begin]);
@@ -266,6 +274,7 @@ export function useManagementJob(): ManagementJobRunner {
     deleteDhcpHost,
     toggleDhcpHost,
     runNetwork,
+    saveSystem,
     createBackup,
     createBundle,
     stageRestore,

@@ -44,6 +44,7 @@ JOB_KINDS = {
     "vpn",
     "dhcp",
     "network",
+    "system",
 }
 CONFIRMED_KINDS = {"action", "restore"}
 
@@ -61,6 +62,9 @@ class ManagementJobRequest(BaseModel):
     hostname: str | None = Field(default=None, max_length=63)
     ip: str | None = Field(default=None, max_length=64)
     mac: str | None = Field(default=None, max_length=32)
+    timezone: str | None = Field(default=None, max_length=64)
+    language: str | None = Field(default=None, max_length=16)
+    notes: str | None = Field(default=None, max_length=512)
 
 
 def _service(request: Request) -> RouterManagementService:
@@ -115,6 +119,15 @@ def kill_process(request: Request, pid: int) -> dict:
     """Send SIGTERM to a running process."""
     try:
         return _service(request).kill_process(pid=pid)
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/system")
+def system_info(request: Request) -> dict:
+    """Return a read-only snapshot of the router's system configuration."""
+    try:
+        return _service(request).system_info()
     except RouterManagementError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -264,6 +277,29 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
     if payload.kind == "bundle":
         job = service.job_store.create("bundle", message="Queued")
         asyncio.create_task(asyncio.to_thread(service.run_bundle_job, job.id))
+        return _job_dict(job)
+
+    if payload.kind == "system":
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to save "
+                    "system settings on the router."
+                ),
+            )
+        job = service.job_store.create("system", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_system_job,
+                job.id,
+                action=payload.action or "save-config",
+                hostname=payload.hostname,
+                timezone=payload.timezone,
+                language=payload.language,
+                notes=payload.notes,
+            )
+        )
         return _job_dict(job)
 
     # restore

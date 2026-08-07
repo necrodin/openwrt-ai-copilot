@@ -30,7 +30,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -63,6 +63,9 @@ export type JobRequest = {
   hostname?: string;
   ip?: string;
   mac?: string;
+  timezone?: string;
+  language?: string;
+  notes?: string;
 };
 
 async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
@@ -201,6 +204,60 @@ export type ProcessResponse = {
 
 export function fetchProcesses(signal?: AbortSignal): Promise<ProcessResponse> {
   return request<ProcessResponse>("/router/management/processes", undefined, signal);
+}
+
+export type SystemNtp = {
+  enabled: boolean;
+  servers: string[];
+  offset: number | null;
+};
+
+export type SystemInfo = {
+  hostname: string;
+  model: string;
+  board: string;
+  vendor: string;
+  architecture: string;
+  target: string;
+  firmware: string;
+  release: string;
+  revision: string;
+  build_date: string;
+  kernel: string;
+  machine: string;
+  device_tree: string;
+  endianness: "little" | "big" | null;
+  flash_bytes: number | null;
+  root_filesystem: string | null;
+  overlay_filesystem: string | null;
+  timezone: string;
+  zonename: string;
+  language: string;
+  notes: string;
+  local_time: string;
+  epoch: number | null;
+  uptime_seconds: number | null;
+  boot_time: number | null;
+  ntp: SystemNtp;
+  generated_at: string;
+};
+
+export type SystemConfig = {
+  hostname?: string;
+  timezone?: string;
+  language?: string;
+  notes?: string;
+};
+
+export function fetchSystemInfo(signal?: AbortSignal): Promise<SystemInfo> {
+  return request<SystemInfo>("/router/management/system", undefined, signal);
+}
+
+export function saveSystemConfig(config: SystemConfig, signal?: AbortSignal): Promise<ManagementJob> {
+  return startJob(
+    { kind: "system", action: "save-config", confirmed: true, ...config },
+    signal,
+  );
 }
 
 export function killProcess(pid: number, signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
