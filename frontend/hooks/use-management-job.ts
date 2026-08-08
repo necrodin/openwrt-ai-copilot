@@ -42,6 +42,7 @@ export type ManagementJobRunner = {
   toggleDhcpHost: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runNetwork: (action: NetworkAction, section: string) => Promise<ManagementJob>;
   runPackage: (action: "install" | "remove" | "upgrade" | "reinstall" | "update-feeds", name?: string) => Promise<ManagementJob>;
+  runStorage: (action: "mount" | "unmount" | "remount", target: string) => Promise<ManagementJob>;
   saveSystem: (config: SystemConfig) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
@@ -194,6 +195,12 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runStorage = useCallback(
+    (action: "mount" | "unmount" | "remount", target: string) =>
+      begin({ kind: "storage", action, target, confirmed: true }, true),
+    [begin],
+  );
+
   const saveSystem = useCallback(
     (config: SystemConfig) => saveSystemConfig(config),
     [],
@@ -285,6 +292,7 @@ export function useManagementJob(): ManagementJobRunner {
     toggleDhcpHost,
     runNetwork,
     runPackage,
+    runStorage,
     saveSystem,
     createBackup,
     createBundle,

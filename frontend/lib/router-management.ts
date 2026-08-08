@@ -77,7 +77,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system" | "packages";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system" | "packages" | "storage";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -114,6 +114,7 @@ export type JobRequest = {
   language?: string;
   notes?: string;
   name?: string;
+  target?: string;
 };
 
 async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
@@ -372,4 +373,62 @@ export function readFileAsBase64(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+export type StorageDevice = {
+  name: string;
+  type: string;
+  vendor: string;
+  model: string;
+  size: number;
+  status: string;
+};
+
+export type StorageMountRow = {
+  device: string;
+  mountpoint: string;
+  filesystem: string;
+  options: string;
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  use_percent: number | null;
+  overlay: boolean;
+  rootfs: boolean;
+};
+
+export type StorageUsbDevice = {
+  device: string;
+  vendor: string;
+  model: string;
+  capacity: number;
+  mounted: boolean;
+  mountpoint: string | null;
+};
+
+export type StorageInfo = {
+  generated_at: string;
+  devices: StorageDevice[];
+  mounts: StorageMountRow[];
+  usb: StorageUsbDevice[];
+  rootfs: StorageMountRow | null;
+  overlayfs: StorageMountRow | null;
+  total_bytes: number | null;
+  used_bytes: number | null;
+  available_bytes: number | null;
+  use_percent: number | null;
+};
+
+export type StorageAction = "mount" | "unmount" | "remount";
+
+export function fetchStorageInfo(signal?: AbortSignal): Promise<StorageInfo> {
+  return request<StorageInfo>("/router/management/storage", undefined, signal);
+}
+
+export function runStorageAction(
+  action: StorageAction,
+  target: string,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "storage", action, target, confirmed: true }, signal);
 }

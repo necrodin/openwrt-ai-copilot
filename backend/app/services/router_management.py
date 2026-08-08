@@ -878,6 +878,241 @@ class RouterManagementService:
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 
+    # -- storage ----------------------------------------------------------- #
+
+    # One-shot gather of block devices (sector counts, so no 32-bit overflow),
+    # ``df``-derived usage and ``/proc/mounts`` details, tagged for parsing.
+    _STORAGE_GATHER_CMD = (
+        "for d in /sys/block/*; do "
+        "[ -e \"$d/size\" ] || continue; "
+        "n=${d##*/}; "
+        "s=$(cat \"$d/size\" 2>/dev/null); "
+        "[ -n \"$s\" ] || s=0; "
+        "t=$(cat \"$d/device/type\" 2>/dev/null); "
+        "r=$(cat \"$d/removable\" 2>/dev/null); "
+        "dd=$(cat \"$d/dev\" 2>/dev/null); "
+        "v=$(cat \"$d/device/vendor\" 2>/dev/null); "
+        "m=$(cat \"$d/device/model\" 2>/dev/null); "
+        "printf '__AI_BLOCK__ %s|%s|%s|%s|%s|%s|%s\\n' "
+        "\"$n\" \"$s\" \"$t\" \"$r\" \"$dd\" \"$v\" \"$m\"; "
+        "done; "
+        "printf '__AI_DF__\\n'; "
+        "df -k 2>/dev/null; "
+        "printf '__AI_MOUNT__\\n'; "
+        "cat /proc/mounts 2>/dev/null"
+    )
+
+    @staticmethod
+    def _parse_df_row(line: str) -> dict[str, Any] | None:
+        """Parse a busy-box ``df -k`` data row into usage fields (bytes)."""
+        cols = line.split()
+        if len(cols) < 6:
+            return None
+
+        def _int(value: str) -> int | None:
+            return int(value) if value.isdigit() else None
+        percent: int | None = None
+        if cols[4].endswith("%"):
+            raw = cols[4][:-1]
+            percent = int(raw) if raw.isdigit() else None
+        return {
+            "device": cols[0],
+            "total_bytes": (_int(cols[1]) or 0) * 1024,
+            "used_bytes": (_int(cols[2]) or 0) * 1024,
+            "available_bytes": (_int(cols[3]) or 0) * 1024,
+            "use_percent": percent,
+            "mountpoint": " ".join(cols[5:]),
+        }
+
+    def storage(self) -> dict[str, Any]:
+        """Collect block devices, filesystem usage and mount options from the router."""
+        output = self._pkg_run(self._STORAGE_GATHER_CMD, timeout=60.0).stdout
+
+        blocks: list[dict[str, Any]] = []
+        df_rows: list[dict[str, Any]] = []
+        mounts_proc: list[dict[str, str]] = []
+        section = "block"
+        for line in output.splitlines():
+            stripped = line.rstrip("\r").strip()
+            if stripped == "__AI_DF__":
+                section = "df"
+                continue
+            if stripped == "__AI_MOUNT__":
+                section = "mount"
+                continue
+            if stripped.startswith("__AI_BLOCK__ "):
+                fields = stripped[len("__AI_BLOCK__ "):].split("|")
+                if len(fields) >= 7:
+                    blocks.append(
+                        {
+                            "name": fields[0],
+                            "sectors": fields[1] if fields[1].isdigit() else "0",
+                            "devtype": fields[2],
+                            "removable": fields[3] == "1",
+                            "devnodes": fields[4],
+                            "vendor": fields[5].strip(),
+                            "model": fields[6].strip(),
+                        }
+                    )
+                continue
+            if section == "df":
+                row = self._parse_df_row(stripped)
+                if row is not None:
+                    df_rows.append(row)
+            elif section == "mount":
+                parts = stripped.split(None, 4)
+                if len(parts) >= 4:
+                    mounts_proc.append(
+                        {
+                            "device": parts[0],
+                            "mountpoint": parts[1],
+                            "filesystem": parts[2],
+                            "options": parts[3],
+                        }
+                    )
+
+        mount_lookup: dict[str, dict[str, str]] = {}
+        for m in mounts_proc:
+            mount_lookup.setdefault(m["mountpoint"], m)
+
+        mounts: list[dict[str, Any]] = []
+        for row in df_rows:
+            mp = row["mountpoint"]
+            info = mount_lookup.get(mp, {})
+            devices = row["device"]
+            mounts.append(
+                {
+                    "device": row["device"],
+                    "mountpoint": mp,
+                    "filesystem": info.get("filesystem", ""),
+                    "options": info.get("options", ""),
+                    "total_bytes": row["total_bytes"],
+                    "used_bytes": row["used_bytes"],
+                    "available_bytes": row["available_bytes"],
+                    "use_percent": row["use_percent"],
+                    "overlay": "/" in devices and "overlay" in devices.lower()
+                    or info.get("filesystem") == "overlay"
+                    or mp == "/overlay",
+                    "rootfs": mp == "/" or info.get("filesystem") == "rootfs",
+                }
+            )
+
+        # Physical devices with a human-friendly type + capacity.
+        devices: list[dict[str, Any]] = []
+        for blk in blocks:
+            sectors = int(blk["sectors"])
+            size = sectors * 512
+            name = blk["name"]
+            if name.startswith("mmcblk"):
+                dtype = "eMMC / SD"
+            elif blk["removable"]:
+                dtype = "USB storage"
+            else:
+                dtype = "Disk"
+            devices.append(
+                {
+                    "name": name,
+                    "type": dtype,
+                    "vendor": blk["vendor"],
+                    "model": blk["model"],
+                    "size": size,
+                    "status": "mounted" if self._device_mounted(mounts, name) else "online",
+                }
+            )
+
+        # USB storage = removable block devices with capacity and mount state.
+        mounted_names = self._device_mount_map(mounts)
+        usb: list[dict[str, Any]] = []
+        for blk in blocks:
+            if not blk["removable"]:
+                continue
+            sectors = int(blk["sectors"])
+            mounted = any(mp.startswith("/dev/" + blk["name"]) for mp in mounted_names)
+            usb.append(
+                {
+                    "device": blk["name"],
+                    "vendor": blk["vendor"],
+                    "model": blk["model"],
+                    "capacity": sectors * 512,
+                    "mounted": mounted,
+                    "mountpoint": self._mounted_mountpoint(mounts, blk["name"]),
+                }
+            )
+
+        root = next((m for m in mounts if m["rootfs"]), None)
+        overlay = next((m for m in mounts if m["overlay"]), None)
+
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "devices": devices,
+            "mounts": mounts,
+            "usb": usb,
+            "rootfs": root,
+            "overlayfs": overlay,
+            "total_bytes": root["total_bytes"] if root else None,
+            "used_bytes": root["used_bytes"] if root else None,
+            "available_bytes": root["available_bytes"] if root else None,
+            "use_percent": root["use_percent"] if root else None,
+        }
+
+    @staticmethod
+    def _device_mount_map(mounts: list[dict[str, Any]]) -> set[str]:
+        return {m["device"] for m in mounts}
+
+    @classmethod
+    def _device_mounted(cls, mounts: list[dict[str, Any]], name: str) -> bool:
+        prefix = f"/dev/{name}"
+        return any(dev.startswith(prefix) for dev in cls._device_mount_map(mounts))
+
+    @staticmethod
+    def _mounted_mountpoint(mounts: list[dict[str, Any]], name: str) -> str | None:
+        prefix = f"/dev/{name}"
+        for m in mounts:
+            if m["device"].startswith(prefix):
+                return m["mountpoint"]
+        return None
+
+    def run_storage_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        target: str,
+    ) -> ManagementJob:
+        """Run a filesystem action (mount / unmount / remount) inside a job."""
+        self._jobs.transition(job_id, "running", message=f"Working on {target}…")
+        try:
+            quoted = self._sh_quote(target)
+            if action == "unmount":
+                command = f"umount {quoted}"
+            elif action == "remount":
+                command = f"mount -o remount {quoted}"
+            elif action == "mount":
+                command = f"mount {quoted}"
+            else:
+                raise RouterManagementError(f"Unsupported storage action: {action}")
+            result = self._pkg_run(command, timeout=120.0)
+            message = (
+                f"Volume '{target}' {action}ed."
+                if result.ok
+                else f"Could not {action} '{target}'."
+            )
+            self._jobs.transition(
+                job_id,
+                "succeeded" if result.ok else "failed",
+                message=message,
+                result={
+                    "ok": result.ok,
+                    "detail": result.to_dict(),
+                    "action": action,
+                    "target": target,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Storage action %r failed", action)
+            self._jobs.transition(job_id, "failed", error=str(exc))
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
     # -- logs -------------------------------------------------------------- #
 
     def read_logs(self, lines: int = 500) -> dict[str, Any]:

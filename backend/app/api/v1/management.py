@@ -46,6 +46,7 @@ JOB_KINDS = {
     "network",
     "system",
     "packages",
+    "storage",
 }
 CONFIRMED_KINDS = {"action", "restore"}
 
@@ -67,6 +68,7 @@ class ManagementJobRequest(BaseModel):
     language: str | None = Field(default=None, max_length=16)
     notes: str | None = Field(default=None, max_length=512)
     name: str | None = Field(default=None, max_length=128)
+    target: str | None = Field(default=None, max_length=512)
 
 
 def _service(request: Request) -> RouterManagementService:
@@ -121,6 +123,15 @@ def package_details(request: Request, name: str) -> dict:
     """Return detailed metadata for a single package."""
     try:
         return _service(request).package_details(name)
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/storage")
+def storage(request: Request) -> dict:
+    """Return block devices, filesystem usage and mount information."""
+    try:
+        return _service(request).storage()
     except RouterManagementError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -349,6 +360,28 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                 timezone=payload.timezone,
                 language=payload.language,
                 notes=payload.notes,
+            )
+        )
+        return _job_dict(job)
+
+    if payload.kind == "storage":
+        if not payload.action or not payload.target:
+            raise HTTPException(status_code=422, detail="A storage action and target are required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to run the "
+                    f"'{payload.action}' storage operation on the router."
+                ),
+            )
+        job = service.job_store.create("storage", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_storage_job,
+                job.id,
+                action=payload.action,
+                target=payload.target,
             )
         )
         return _job_dict(job)
