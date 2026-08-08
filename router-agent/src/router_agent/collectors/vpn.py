@@ -316,7 +316,9 @@ class VpnCollector(Collector):
         status = ctx.sh("ipsec statusall 2>/dev/null", default="")
         if not status.strip():
             return None
-        conns = sum(1 for line in status.splitlines() if line.lstrip().startswith("Security Association"))
+        conns = sum(
+            1 for line in status.splitlines() if line.lstrip().startswith("Security Association")
+        )
         return VpnTunnel(
             name="ipsec",
             kind="ipsec",

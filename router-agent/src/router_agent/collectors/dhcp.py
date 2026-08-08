@@ -39,6 +39,14 @@ def _range_end(start: str | None, limit: str | None) -> str | None:
         return None
 
 
+def _opt_first(
+    opts: dict[str, list[str]],
+    key: str,
+    default: str | None = None,
+) -> str | None:
+    return opts.get(key, [default])[0]
+
+
 def _parse_pools(sections: dict[str, dict[str, list[str]]]) -> tuple[bool, list[DhcpPool]]:
     enabled = True
     pools: list[DhcpPool] = []
@@ -48,16 +56,16 @@ def _parse_pools(sections: dict[str, dict[str, list[str]]]) -> tuple[bool, list[
             continue
         if not name.startswith("@dhcp"):
             continue
-        first = lambda key, default=None: opts.get(key, [default])[0]
-        start = first("start")
-        limit = first("limit")
+
+        start = _opt_first(opts, "start")
+        limit = _opt_first(opts, "limit")
         pools.append(
             DhcpPool(
-                name=first("name", name) or name,
-                interface=first("interface"),
+                name=_opt_first(opts, "name", name) or name,
+                interface=_opt_first(opts, "interface"),
                 start=start,
                 limit=int(limit) if limit and limit.isdigit() else None,
-                leasetime=first("leasetime"),
+                leasetime=_opt_first(opts, "leasetime"),
                 range_end=_range_end(start, limit),
             )
         )
@@ -85,13 +93,12 @@ def _parse_dnsmasq(sections: dict[str, dict[str, list[str]]]) -> tuple[
                 elif option_number.strip() == "6" and option_value:
                     dns.extend(s for s in option_value.split(",") if s.strip())
         elif name.startswith("@host"):
-            first = lambda key, default=None: opts.get(key, [default])[0]
             static_leases.append(
                 DhcpStaticLease(
                     section=name,
-                    hostname=first("name"),
-                    ip=first("ip"),
-                    mac=first("mac"),
+                    hostname=_opt_first(opts, "name"),
+                    ip=_opt_first(opts, "ip"),
+                    mac=_opt_first(opts, "mac"),
                     enabled=opts.get("enabled", ["1"])[0] != "0",
                 )
             )
