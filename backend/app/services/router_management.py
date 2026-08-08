@@ -122,6 +122,7 @@ JobKind = Literal[
     "wireless",
     "vpn",
     "dhcp",
+    "dns",
     "network",
     "system",
     "packages",
@@ -564,6 +565,15 @@ class RouterManagementService:
     def _sh_quote(value: str) -> str:
         """Single-quote a shell argument safely."""
         return "'" + value.replace("'", "'\\''") + "'"
+
+    @staticmethod
+    def _as_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     _PKG_NAME_PATTERN = re.compile(r"^[A-Za-z0-9._+@~/-]{1,128}$")
 
@@ -1433,8 +1443,8 @@ class RouterManagementService:
         *,
         section: str,
         enabled: bool,
-    ) -> ManagementJob:
-        """Execute a firewall rule toggle inside a tracked job."""
+        ) -> ManagementJob:
+        """Execute a firewall rule toggle inside a single job."""
         action_label = "Enable" if enabled else "Disable"
         self._jobs.transition(job_id, "running", message=f"{action_label}ing firewall rule…")
         try:
@@ -1447,6 +1457,421 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"Firewall rule could not be {action_label.lower()}d.",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # ---- firewall management job ----------------------------------------- #
+    #
+    # The full management surface: restart / reload / enable / disable the
+    # service and enable or disable individual zones, traffic rules and
+    # forwarding sections. Every mutation commits through ``uci`` and reloads
+    # the live firewall, and runs inside the tracked :class:`ManagementJob`.
+
+    # One-shot gather of the UCI firewall config, the ubus interface table
+    # (used to report which interfaces a zone covers), runtime status and the
+    # connection-tracking utilization. Tagged so the parser can attribute
+    # output unambiguously.
+    _FIREWALL_GATHER_CMD = (
+        "printf '__AI_FW_CONFIG__\\n'; "
+        "uci show firewall 2>/dev/null; "
+        "printf '__AI_FW_INTERFACES__\\n'; "
+        "ubus call network.interface dump 2>/dev/null; "
+        "printf '__AI_FW_STATUS__\\n'; "
+        "if [ -f /var/run/fw4.state ] || [ -f /tmp/fw4.state ] "
+        "|| pgrep -x fw4 >/dev/null 2>&1; then echo running; else echo stopped; fi; "
+        "ls /etc/rc.d/S*firewall >/dev/null 2>&1 && echo boot-enabled || echo boot-disabled; "
+        "fw4 -v 2>/dev/null | head -1 || fw3 -v 2>/dev/null | head -1; "
+        "printf '__AI_FW_CONNTRACK__\\n'; "
+        "printf 'count=%s\\n' \"$(cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null)\"; "
+        "printf 'max=%s\\n' \"$(cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null)\"; "
+        "printf '__AI_FW_IPSET__\\n'; "
+        "if command -v ipset >/dev/null 2>&1; then echo available; else echo missing; fi; "
+        "echo __AI_FW_DONE__"
+    )
+
+    _FW_SECTION_RE = re.compile(r"^firewall\.(?P<key>[^=]+)=(?P<type>\w+)$")
+    _FW_OPTION_RE = re.compile(
+        r"^firewall\.(?P<key>[^=]+)\.(?P<opt>[A-Za-z0-9_]+)='(?P<value>[^']*)'$"
+    )
+
+    @staticmethod
+    def _fw_bool(value: str | None) -> bool:
+        return bool(value and value.lower() in {"1", "yes", "true", "on"})
+
+    @staticmethod
+    def _fw_int(value: str | None) -> int | None:
+        return int(value) if value and value.isdigit() else None
+
+    @classmethod
+    def _fw_section_enabled(cls, opt: dict[str, Any]) -> bool:
+        """UCI firewall enabled semantics: ``enabled '0'`` / ``disabled '1'``."""
+        if "disabled" in opt:
+            return not cls._fw_bool(opt["disabled"])
+        if "enabled" in opt:
+            return opt["enabled"] != "0"
+        return True
+
+    def _firewall_set_section_enabled(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Set the ``enabled`` option of a firewall section and reload."""
+        if not section or not self._SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid firewall section identifier.")
+        value = "1" if enabled else "0"
+        command = (
+            f"uci set firewall.{section}.enabled='{value}' && "
+            "uci commit firewall && /etc/init.d/firewall reload"
+        )
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            label = "enabled" if enabled else "disabled"
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "label": label,
+                    "message": f"Firewall section could not be {label} (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "label": label,
+                "message": f"Firewall section {label} and reloaded.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def firewall_set_enabled(self, *, enabled: bool) -> dict[str, Any]:
+        """Enable or disable the whole firewall (defaults toggle + restart)."""
+        base = "uci delete firewall.@defaults[0].enabled" if enabled else (
+            "uci set firewall.@defaults[0].enabled='0'"
+        )
+        command = f"{base} && uci commit firewall && /etc/init.d/firewall restart"
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            label = "enabled" if enabled else "disabled"
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "message": f"Firewall could not be {label} (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "message": f"Firewall {label} and restarted.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def firewall(self) -> dict[str, Any]:
+        """Collect the complete firewall configuration via UCI/ubus.
+
+        Returns zones, traffic rules, port-forwards (redirects), zone-to-zone
+        forwarding, custom includes and ipsets (when the extra package is
+        installed), plus global defaults, runtime status and connection
+        tracking utilization. Pick nothing — the collector is read-only.
+        """
+        output = self._pkg_run(self._FIREWALL_GATHER_CMD, timeout=60.0).stdout
+
+        sections: dict[str, dict[str, Any]] = {}
+        state = ""
+        config_lines: list[str] = []
+        interfaces_raw = ""
+        status_lines: list[str] = []
+        conntrack_lines: list[str] = []
+        ipset_lines: list[str] = []
+        for line in output.splitlines():
+            stripped = line.rstrip("\r").strip()
+            if not stripped:
+                continue
+            if stripped.startswith("__AI_FW_"):
+                if stripped == "__AI_FW_CONFIG__":
+                    state = "config"
+                elif stripped == "__AI_FW_INTERFACES__":
+                    state = "interfaces"
+                elif stripped == "__AI_FW_STATUS__":
+                    state = "status"
+                elif stripped == "__AI_FW_CONNTRACK__":
+                    state = "conntrack"
+                elif stripped == "__AI_FW_IPSET__":
+                    state = "ipset"
+                elif stripped == "__AI_FW_DONE__":
+                    state = ""
+                continue
+            if state == "config":
+                config_lines.append(stripped)
+            elif state == "interfaces":
+                interfaces_raw = f"{interfaces_raw}\n{stripped}"
+            elif state == "status":
+                status_lines.append(stripped)
+            elif state == "conntrack":
+                conntrack_lines.append(stripped)
+            elif state == "ipset":
+                ipset_lines.append(stripped)
+
+        for line in config_lines:
+            match = self._FW_OPTION_RE.match(line)
+            if match:
+                key, opt, value = match.group("key"), match.group("opt"), match.group("value")
+                section = sections.setdefault(key, {})
+                existing = section.get(opt)
+                if existing is None:
+                    section[opt] = value
+                elif isinstance(existing, list):
+                    existing.append(value)
+                else:
+                    section[opt] = [existing, value]
+                continue
+            match = self._FW_SECTION_RE.match(line)
+            if match:
+                sections.setdefault(match.group("key"), {"_type": match.group("type")})
+
+        defaults: dict[str, Any] | None = None
+        zones: list[dict[str, Any]] = []
+        rules: list[dict[str, Any]] = []
+        port_forwards: list[dict[str, Any]] = []
+        forwardings: list[dict[str, Any]] = []
+        nat: list[dict[str, Any]] = []
+        includes: list[dict[str, Any]] = []
+        ipsets: list[dict[str, Any]] = []
+
+        for key, section in sections.items():
+            stype = section.get("_type")
+            if stype == "defaults":
+                defaults = {
+                    "input": section.get("input"),
+                    "output": section.get("output"),
+                    "forward": section.get("forward"),
+                    "masquerade": self._fw_bool(section.get("masq")),
+                    "syn_flood": self._fw_bool(
+                        section.get("synflood_protect") or section.get("syn_flood")
+                    ),
+                    "osf": self._fw_bool(section.get("osf")),
+                    "mtu": RouterManagementService._fw_int(section.get("mtu")),
+                }
+            elif stype == "zone":
+                network = section.get("network")
+                zones.append(
+                    {
+                        "name": section.get("name", ""),
+                        "section": key,
+                        "enabled": self._fw_section_enabled(section),
+                        "family": section.get("family"),
+                        "input": section.get("input"),
+                        "output": section.get("output"),
+                        "forward": section.get("forward"),
+                        "masquerade": self._fw_bool(section.get("masq")),
+                        "mtu_fix": self._fw_bool(section.get("mtu_fix")),
+                        "network": network,
+                    }
+                )
+            elif stype == "rule":
+                rules.append(
+                    {
+                        "name": section.get("name", ""),
+                        "src": section.get("src"),
+                        "dest": section.get("dest"),
+                        "proto": section.get("proto"),
+                        "target": section.get("target"),
+                        "family": section.get("family"),
+                        "src_port": section.get("src_port"),
+                        "dest_port": section.get("dest_port"),
+                        "enabled": self._fw_section_enabled(section),
+                        "section": key,
+                    }
+                )
+            elif stype == "redirect":
+                port_forwards.append(
+                    {
+                        "name": section.get("name", ""),
+                        "src": section.get("src"),
+                        "src_dport": section.get("src_dport") or section.get("dport"),
+                        "src_ip": section.get("src_ip"),
+                        "dest": section.get("dest"),
+                        "dest_ip": section.get("dest_ip"),
+                        "dest_port": section.get("dest_port"),
+                        "proto": section.get("proto"),
+                        "target": section.get("target", "DNAT"),
+                        "family": section.get("family"),
+                        "enabled": self._fw_section_enabled(section),
+                        "section": key,
+                    }
+                )
+            elif stype == "forwarding":
+                forwardings.append(
+                    {
+                        "name": section.get("name", ""),
+                        "src": section.get("src"),
+                        "dest": section.get("dest"),
+                        "family": section.get("family"),
+                        "enabled": self._fw_section_enabled(section),
+                        "section": key,
+                    }
+                )
+            elif stype == "nat":
+                nat.append(
+                    {
+                        "name": section.get("name", ""),
+                        "src": section.get("src"),
+                        "dest": section.get("dest"),
+                        "src_dport": section.get("src_dport"),
+                        "dest_ip": section.get("dest_ip"),
+                        "dest_port": section.get("dest_port"),
+                        "proto": section.get("proto"),
+                        "target": section.get("target"),
+                        "family": section.get("family"),
+                        "enabled": self._fw_section_enabled(section),
+                        "section": key,
+                    }
+                )
+            elif stype == "include":
+                includes.append(
+                    {
+                        "name": section.get("name", ""),
+                        "path": section.get("path"),
+                        "type": section.get("_type"),
+                        "enabled": self._fw_section_enabled(section),
+                        "section": key,
+                    }
+                )
+            elif stype == "ipset" and ipset_lines:
+                entries = section.get("entries")
+                entries_list = list(entries) if isinstance(entries, list) else (
+                    [entries] if entries else []
+                )
+                ipsets.append(
+                    {
+                        "name": section.get("name", ""),
+                        "section": key,
+                        "family": section.get("family"),
+                        "match": section.get("match"),
+                        "enabled": self._fw_section_enabled(section),
+                        "entries": entries_list,
+                        "count": len(entries_list),
+                    }
+                )
+
+        # Runtime state.
+        running = any(line.strip().lower() == "running" for line in status_lines)
+        boot_enabled = any(line.strip().lower() == "boot-enabled" for line in status_lines)
+        _status_tokens = {"running", "stopped", "boot-enabled", "boot-disabled"}
+        version = next(
+            (line.strip() for line in status_lines if line.strip().lower() not in _status_tokens),
+            None,
+        )
+        conntrack: dict[str, Any] | None = None
+        count_raw = ""
+        max_raw = ""
+        for line in conntrack_lines:
+            if line.startswith("count="):
+                count_raw = line.split("=", 1)[1].strip()
+            elif line.startswith("max="):
+                max_raw = line.split("=", 1)[1].strip()
+        if count_raw or max_raw:
+            conntrack = {
+                "count": int(count_raw) if count_raw.isdigit() else None,
+                "max": int(max_raw) if max_raw.isdigit() else None,
+            }
+
+        # Interfaces seen through ubus (reported for zone->interface mapping).
+        interfaces: list[dict[str, Any]] = []
+        if interfaces_raw.strip():
+            try:
+                parsed = json.loads(interfaces_raw)
+                for entry in (parsed.get("interface") or []):
+                    if not isinstance(entry, dict):
+                        continue
+                    interfaces.append(
+                        {
+                            "name": entry.get("interface", ""),
+                            "device": entry.get("l3_device") or entry.get("device", ""),
+                            "up": entry.get("up") is True,
+                            "proto": entry.get("proto"),
+                        }
+                    )
+            except json.JSONDecodeError:
+                interfaces = []
+
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "enabled": boot_enabled,
+            "running": running,
+            "version": version,
+            "defaults": defaults,
+            "zones": zones,
+            "rules": rules,
+            "port_forwards": port_forwards,
+            "forwardings": forwardings,
+            "nat": nat,
+            "includes": includes,
+            "ipsets": ipsets,
+            "ipsets_available": bool(ipset_lines and "available" in (ipset_lines[0] or "")),
+            "interfaces": interfaces,
+            "conntrack": conntrack,
+            "counts": {
+                "zones": len(zones),
+                "rules": len(rules),
+                "port_forwards": len(port_forwards),
+                "forwardings": len(forwardings),
+                "nat": len(nat),
+                "includes": len(includes),
+                "ipsets": len(ipsets),
+            },
+        }
+
+    def run_firewall_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        section: str | None = None,
+        enabled: bool | None = None,
+    ) -> ManagementJob:
+        """Execute a firewall management action inside a tracked job.
+
+        Supported actions: ``restart``, ``reload``, ``enable``, ``disable``
+        (whole service) or section toggles ``enable-zone``/``disable-zone``,
+        ``enable-rule``/``disable-rule`` and
+        ``enable-forwarding``/``disable-forwarding``.
+        """
+        self._jobs.transition(job_id, "running", message="Applying firewall change…")
+        try:
+            if action == "restart":
+                result = self.action("restart-firewall")
+            elif action == "reload":
+                result = self.action("reload-firewall")
+            elif action == "enable":
+                result = self.firewall_set_enabled(enabled=True)
+            elif action == "disable":
+                result = self.firewall_set_enabled(enabled=False)
+            elif action in ("enable-zone", "disable-zone"):
+                result = self._firewall_set_section_enabled(
+                    section=section or "", enabled=(action == "enable-zone")
+                )
+            elif action in ("enable-forwarding", "disable-forwarding"):
+                result = self._firewall_set_section_enabled(
+                    section=section or "", enabled=(action == "enable-forwarding")
+                )
+            elif action in ("enable-rule", "disable-rule"):
+                result = self.toggle_firewall_rule(
+                    section=section or "", enabled=(action == "enable-rule")
+                )
+            else:
+                raise RouterManagementError(f"Unsupported firewall action: {action}")
+            self._jobs.transition(
+                job_id,
+                "succeeded" if result.get("ok") else "failed",
+                message=result.get("message", "Firewall change completed."),
+                result=result,
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Firewall action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"Firewall change failed: {exc}",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 
@@ -1501,6 +1926,343 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"SSID could not be {action_label.lower()}d.",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # Radiodevice UCI keys whose ``disabled`` option controls the whole radio.
+    _WIFI_DEVICE_RE = re.compile(r"^wireless\.(?P<key>[^=]+)=(?P<type>\w+)$")
+    _WIFI_OPTION_RE = re.compile(
+        r"^wireless\.(?P<key>[^=]+)\.(?P<opt>[A-Za-z0-9_]+)='(?P<value>[^']*)'$"
+    )
+    _WIFI_STATUS_STATION = re.compile(r"^\s*Station\s+([0-9a-f:]{17})", re.IGNORECASE)
+
+    # One-shot gather: the UCI wireless tree, the live ``ubus wifi status`` view,
+    # per-interface carrier/station counts via ``iw``, and the DHCP lease file to
+    # merge hostnames/IPs onto associated stations. Tagged for the parser.
+    _WIRELESS_GATHER_CMD = (
+        "printf '__AI_WIFI_UCI__\\n'; "
+        "uci show wireless 2>/dev/null; "
+        "printf '__AI_WIFI_STATUS__\\n'; "
+        "ubus call wifi status 2>/dev/null; "
+        "printf '__AI_WIFI_IFACES__\\n'; "
+        "for i in /sys/class/net/*; do "
+        "n=${i##*/}; [ -d /sys/class/net/$n/wireless ] || continue; "
+        "c=$(cat /sys/class/net/$n/carrier 2>/dev/null); "
+        "s=$(iw dev $n station dump 2>/dev/null | grep -c '^Station '); "
+        "echo \"$n|${c:-0}|${s:-0}\"; "
+        "done; "
+        "printf '__AI_WIFI_LEASES__\\n'; "
+        "cat /tmp/dhcp.leases 2>/dev/null; "
+        "printf '__AI_WIFI_DONE__\\n'"
+    )
+
+    @staticmethod
+    def _wifi_band(hwmode: str | None, frequency: int | None) -> str | None:
+        if frequency is not None:
+            return "5GHz" if frequency >= 5000 else "2.4GHz"
+        if hwmode:
+            mode = hwmode.lower()
+            if "a" in mode:
+                return "5GHz"
+            if "b" in mode or "g" in mode:
+                return "2.4GHz"
+            if "ax" in mode or "ac" in mode:
+                return "unknown"
+        return None
+
+    @staticmethod
+    def _wifi_width_mhz(htmode: str | None, hwmode: str | None) -> int | None:
+        """Derive channel width in MHz from an HT/VHT/HE/EHT mode string."""
+        if not htmode:
+            if hwmode and "n" in hwmode.lower():
+                return 20
+            return None
+        match = re.search(r"(20|40|80|160|320)", htmode)
+        if match:
+            return int(match.group(1))
+        return None
+
+    def wireless(self) -> dict[str, Any]:
+        """Collect the full wireless view: radios, SSIDs and associated stations.
+
+        Combines the configured ``uci`` wireless tree with the live ``ubus wifi
+        status`` radio state (band, channel, width, station metrics) and the
+        per-interface station counts gathered via ``iw``. Station hostnames and
+        IPs are merged from the dnsmasq lease file when the MAC matches.
+        Read-only — nothing is changed on the router.
+        """
+        output = self._pkg_run(self._WIRELESS_GATHER_CMD, timeout=60.0).stdout
+
+        # Divert the output into per-section buffers.
+        uci_lines: list[str] = []
+        status_raw = ""
+        iface_lines: list[str] = []
+        lease_lines: list[str] = []
+        state = ""
+        for line in output.splitlines():
+            stripped = line.rstrip("\r").strip()
+            if not stripped:
+                continue
+            if stripped.startswith("__AI_WIFI_"):
+                if stripped == "__AI_WIFI_UCI__":
+                    state = "uci"
+                elif stripped == "__AI_WIFI_STATUS__":
+                    state = "status"
+                elif stripped == "__AI_WIFI_IFACES__":
+                    state = "ifaces"
+                elif stripped == "__AI_WIFI_LEASES__":
+                    state = "leases"
+                elif stripped == "__AI_WIFI_DONE__":
+                    state = ""
+                continue
+            if state == "uci":
+                uci_lines.append(stripped)
+            elif state == "status":
+                status_raw = f"{status_raw}\n{stripped}"
+            elif state == "ifaces":
+                iface_lines.append(stripped)
+            elif state == "leases":
+                lease_lines.append(stripped)
+
+        # Runtime status from ubus.
+        stations_by_iface: dict[str, list[dict[str, Any]]] = {}
+        radio_meta: dict[str, dict[str, Any]] = {}
+        if status_raw.strip():
+            try:
+                status = json.loads(status_raw)
+                if isinstance(status, dict):
+                    for radio_name, radio in status.items():
+                        if not isinstance(radio, dict):
+                            continue
+                        radio_meta[radio_name] = radio
+                        for iface in radio.get("interfaces") or []:
+                            if not isinstance(iface, dict):
+                                continue
+                            cfg = iface.get("config") or {}
+                            ifname = cfg.get("ifname")
+                            if not ifname:
+                                continue
+                            for mac, station in (radio.get("stations") or {}).items():
+                                if isinstance(station, dict):
+                                    stations_by_iface.setdefault(ifname, []).append(
+                                        {"mac": mac, **station}
+                                    )
+            except json.JSONDecodeError:
+                radio_meta = {}
+
+        # Per-interface carrier + station count gathered via iw.
+        iface_state: dict[str, dict[str, Any]] = {}
+        for line in iface_lines:
+            name, _, rest = line.partition("|")
+            carrier, _, count = rest.partition("|")
+            iface_state[name] = {"up": carrier == "1", "stations": int(count) if count else 0}
+
+        # Active lease map for hostname/IP enrichment.
+        leases: dict[str, dict[str, str]] = {}
+        for line in lease_lines:
+            parts = line.split()
+            if len(parts) >= 4:
+                mac, ip, hostname = parts[1], parts[2], parts[3]
+                leases[mac.lower()] = {"hostname": hostname, "ip": ip}
+
+        # Config tree: devices (radios) and interfaces (SSIDs) from UCI.
+        sections: dict[str, dict[str, Any]] = {}
+        for line in uci_lines:
+            match = self._WIFI_OPTION_RE.match(line)
+            if match:
+                key, opt, value = match.group("key"), match.group("opt"), match.group("value")
+                sections.setdefault(key, {})[opt] = value
+                continue
+            match = self._WIFI_DEVICE_RE.match(line)
+            if match:
+                sections.setdefault(match.group("key"), {"_type": match.group("type")})
+
+        wifi_devices: list[dict[str, Any]] = []
+        wifi_ifaces: list[dict[str, Any]] = []
+        for key, section in sections.items():
+            stype = section.get("_type")
+            if stype == "wifi-device":
+                wifi_devices.append({"name": section.get("name", key), "section": key, **section})
+            elif stype == "wifi-iface":
+                wifi_ifaces.append({"section": key, **section})
+
+        radios: list[dict[str, Any]] = []
+        networks: list[dict[str, Any]] = []
+        clients: list[dict[str, Any]] = []
+
+        for device in wifi_devices:
+            name = device["name"]
+            runtime = radio_meta.get(name) or {}
+            config = runtime.get("config") or {}
+            hwmode = device.get("hwmode") or config.get("hwmode")
+            htmode = device.get("htmode") or config.get("htmode")
+            frequency = self._as_int(config.get("frequency"))
+            channel = self._as_int(device.get("channel") or config.get("channel"))
+            tx_power = self._as_int(device.get("txpower") or config.get("txpower"))
+            station_count = 0
+            for iface_cfg in runtime.get("interfaces") or []:
+                if not isinstance(iface_cfg, dict):
+                    continue
+                station_count += len(iface_cfg.get("stations") or {}) if isinstance(
+                    iface_cfg.get("stations"), dict
+                ) else 0
+            radios.append(
+                {
+                    "name": name,
+                    "section": device["section"],
+                    "up": bool(runtime.get("up", False)),
+                    "mode": config.get("mode"),
+                    "band": self._wifi_band(hwmode, frequency),
+                    "channel": channel,
+                    "frequency_mhz": frequency,
+                    "tx_power": tx_power,
+                    "ssid": (
+                        next(
+                            (
+                                (c.get("config") or {}).get("ssid")
+                                for c in runtime.get("interfaces") or []
+                                if isinstance(c, dict) and (c.get("config") or {}).get("ssid")
+                            ),
+                            None,
+                        )
+                    ),
+                    "hwmode": hwmode,
+                    "width_mhz": self._wifi_width_mhz(htmode, hwmode),
+                    "station_count": station_count,
+                    "country": device.get("country") or config.get("country"),
+                    "hardware": device.get("path"),
+                    "enabled": device.get("disabled") != "1",
+                    "guest": device.get("guest") == "1",
+                }
+            )
+
+        for iface in sorted(wifi_ifaces, key=lambda item: item.get("ssid", "")):
+            ssid = iface.get("ssid", "")
+            device = iface.get("device", "")
+            ifname = iface.get("ifname")
+            state = iface_state.get(ifname or "") or {}
+            stations = stations_by_iface.get(ifname or "", [])
+            networks.append(
+                {
+                    "ssid": ssid,
+                    "radio": device,
+                    "interface": ifname,
+                    "mode": iface.get("mode"),
+                    "encryption": iface.get("encryption"),
+                    "hidden": iface.get("hidden") == "1",
+                    "enabled": iface.get("disabled") != "1",
+                    "network": iface.get("network"),
+                    "client_count": len(stations) or state.get("stations", 0),
+                    "section": iface.get("section"),
+                    "guest": iface.get("guest") == "1",
+                }
+            )
+            for station in stations:
+                mac = (station.get("mac") or "").lower()
+                lease = leases.get(mac) if station.get("mac") else None
+                clients.append(
+                    {
+                        "mac": station.get("mac"),
+                        "ssid": ssid,
+                        "hostname": (lease or {}).get("hostname") or None,
+                        "ip": (lease or {}).get("ip") or None,
+                        "signal_dbm": self._as_int(station.get("signal")),
+                        "noise": self._as_int(station.get("noise")),
+                        "rx_rate": self._as_int(station.get("rx_rate")),
+                        "tx_rate": self._as_int(station.get("tx_rate")),
+                        "tx_bytes": self._as_int(station.get("txbytes")),
+                        "rx_bytes": self._as_int(station.get("rxbytes")),
+                        "connected_time": self._as_int(station.get("connected_time")),
+                        "interface": ifname,
+                    }
+                )
+
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "running": any(r["up"] for r in radios),
+            "enabled": any(r["enabled"] for r in radios),
+            "radios": radios,
+            "networks": networks,
+            "clients": clients,
+            "counts": {
+                "radios": len(radios),
+                "networks": len(networks),
+                "clients": len(clients),
+            },
+        }
+
+    def toggle_wireless_radio(self, *, section: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable one UCI ``wifi-device`` (radio) and reload wireless."""
+        if not section or not self._SECTION_PATTERN.match(section):
+            raise RouterManagementError("Invalid wireless radio section identifier.")
+        base = (
+            f"uci delete wireless.{section}.disabled"
+            if enabled
+            else f"uci set wireless.{section}.disabled='1'"
+        )
+        command = f"{base} && uci commit wireless && /etc/init.d/wireless reload"
+        transport = self.open()
+        try:
+            result = self.run(transport, command, timeout=90.0)
+            label = "enabled" if enabled else "disabled"
+            if not result.ok:
+                return {
+                    "ok": False,
+                    "label": label,
+                    "message": f"Radio could not be {label} (exit {result.exit_code}).",
+                    "detail": result.to_dict(),
+                }
+            return {
+                "ok": True,
+                "label": label,
+                "message": f"Radio {label} and wireless reloaded.",
+                "detail": result.to_dict(),
+            }
+        finally:
+            transport.close()
+
+    def run_wireless_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        section: str | None = None,
+        enabled: bool = False,
+    ) -> ManagementJob:
+        """Execute a wireless action inside a tracked job.
+
+        Actions: ``restart`` / ``reload`` (the whole service) or section toggles
+        ``enable-ssid`` / ``disable-ssid``, ``enable-radio`` / ``disable-radio``.
+        """
+        self._jobs.transition(job_id, "running", message="Applying wireless change…")
+        try:
+            if action in ("restart", "reload"):
+                result = self.action(
+                    "restart-wifi" if action == "restart" else "reload-wireless"
+                )
+            elif action in ("enable-ssid", "disable-ssid"):
+                result = self.toggle_wireless_ssid(
+                    section=section or "", enabled=(action == "enable-ssid")
+                )
+            elif action in ("enable-radio", "disable-radio"):
+                result = self.toggle_wireless_radio(
+                    section=section or "", enabled=(action == "enable-radio")
+                )
+            else:
+                raise RouterManagementError(f"Unsupported wireless action: {action}")
+            self._jobs.transition(
+                job_id,
+                "succeeded" if result.get("ok") else "failed",
+                message=result.get("message", "Wireless change completed."),
+                result=result,
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Wireless action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"Wireless change failed: {exc}",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 
@@ -1589,6 +2351,98 @@ class RouterManagementService:
         finally:
             transport.close()
 
+    def collect_dhcp(self) -> dict[str, Any]:
+        """Gather the dnsmasq status plus UCI DHCP configuration."""
+        script = (
+            "uci show dhcp; echo __AI_SEP__; "
+            "/etc/init.d/dnsmasq running; echo '$?'; "
+            "echo 'enable_dnsmasq='; uci get dhcp.@dnsmasq[0].enable_dnsmasq 2>/dev/null; "
+            "echo '__AI_SEP__'; cat /tmp/dhcp.leases 2>/dev/null"
+        )
+        transport = self.open()
+        try:
+            result = self.run(transport, script, timeout=90.0)
+        finally:
+            transport.close()
+
+        status: dict[str, Any] = {
+            "service": {"name": "dnsmasq", "running": False, "enabled": True, "configured": True},
+            "settings": {},
+            "hosts": [],
+            "leases": [],
+        }
+        if not result.ok:
+            status["error"] = result.stderr or "Cannot reach router."
+            return status
+
+        parts = result.stdout.split("__AI_SEP__")
+        settings: dict[str, Any] = {}
+        hosts = []
+        if parts:
+            for line in parts[0].rstrip("\r").splitlines():
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                key, _, raw_value = line.partition("=")
+                value = raw_value.strip().strip("'\"").strip()
+                if key.startswith("@host"):
+                    idx = key.split(".", 1)
+                    option = idx[1] if len(idx) > 1 else None
+                    hostname = idx[0]
+                    entry = next(
+                        (h for h in hosts if h["section"] == hostname), None
+                    )
+                    if entry is None:
+                        entry = {
+                            "section": hostname,
+                            "name": "",
+                            "ip": "",
+                            "mac": "",
+                            "enabled": True,
+                        }
+                        hosts.append(entry)
+                    if option in ("name", "ip", "mac"):
+                        entry[option] = value
+                    elif option == "enabled":
+                        entry["enabled"] = value != "0"
+                else:
+                    fields = key.split(".")
+                    if len(fields) == 2 and fields[0] == "dnsmasq":
+                        settings[fields[1]] = value if value not in ("", "0") else (value == "0")
+                        if fields[1] == "enable_dnsmasq":
+                            status["service"]["enabled"] = value != "0"
+        status["settings"] = settings
+        status["hosts"] = hosts
+
+        if len(parts) > 1:
+            running = parts[1]
+            if "running" in running:
+                status["service"]["running"] = True
+            elif "not running" in running:
+                status["service"]["running"] = False
+            try:
+                rc = int(running.split()[-1].strip())
+                status["service"]["running"] = rc == 0
+            except (ValueError, IndexError):
+                pass
+
+        if len(parts) > 2:
+            for line in parts[2].rstrip("\r").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                fields = line.split()
+                if len(fields) >= 4:
+                    status["leases"].append(
+                        {
+                            "time": fields[0],
+                            "mac": fields[1],
+                            "ip": fields[2],
+                            "hostname": fields[3] if len(fields) > 3 else "",
+                        }
+                    )
+        return status
+
     def dhcp_set_enabled(self, *, enabled: bool) -> dict[str, Any]:
         """Enable or disable the whole dnsmasq DHCP server."""
         value = "1" if enabled else "0"
@@ -1673,10 +2527,22 @@ class RouterManagementService:
         ip: str | None,
         mac: str | None,
     ) -> ManagementJob:
-        """Execute a DHCP change inside a tracked job."""
+        """Execute a DHCP change inside a tracked job.
+
+        Actions: ``reload`` / ``restart`` (the dnsmasq service),
+        ``set-enabled``, or host CRUD (``host-add`` / ``host-edit`` /
+        ``host-delete`` / ``host-toggle``).
+        """
         self._jobs.transition(job_id, "running", message="Applying DHCP change…")
         try:
-            if action == "set-enabled":
+            if action in ("reload", "restart"):
+                result = self.action("reload-dhcp" if action == "reload" else "restart-dhcp")
+                result["message"] = (
+                    "DHCP server reloaded."
+                    if action == "reload"
+                    else "DHCP server restarted."
+                )
+            elif action == "set-enabled":
                 result = self.dhcp_set_enabled(enabled=enabled)
             elif action == "host-add":
                 result = self.dhcp_add_host(hostname=hostname or "", ip=ip or "", mac=mac or "")
@@ -1701,6 +2567,208 @@ class RouterManagementService:
                 "failed",
                 error=str(exc),
                 message=f"DHCP change failed: {exc}",
+            )
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- DNS --------------------------------------------------------------- #
+
+    _DNS_SERVER_PATTERN = re.compile(r"^[A-Za-z0-9_.:\-]{1,253}$")
+    _DNS_NAMESERVER_PATTERN = re.compile(r"^\s*nameserver\s+(\S+)\s*$")
+    _DNS_HOST_LINE = re.compile(r"^\s*([^\s#]+)\s+([^\s#]+)")
+    _DNS_HOSTNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.\-]{1,63}$")
+
+    @staticmethod
+    def _validate_dns_host(*, hostname: str, ip: str) -> None:
+        if not hostname or not ip:
+            raise RouterManagementError("Hostname and IP are both required.")
+        if not RouterManagementService._DNS_HOSTNAME_PATTERN.fullmatch(hostname):
+            raise RouterManagementError("Invalid hostname.")
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError as exc:
+            raise RouterManagementError("Invalid IP address.") from exc
+
+    def _dns_run(self, command: str) -> CommandResult:
+        transport = self.open()
+        try:
+            return self.run(transport, command, timeout=90.0)
+        finally:
+            transport.close()
+
+    def collect_dns(self) -> dict[str, Any]:
+        """Gather the DNS/forwarder state: upstream servers, local hosts and the
+        dnsmasq service status. Read-only — nothing is changed on the router.
+        """
+        script = (
+            "uci show dhcp 2>/dev/null; echo '__AI_SEP__'; "
+            "cat /etc/resolv.conf 2>/dev/null; echo '__AI_SEP__'; "
+            "cat /etc/hosts 2>/dev/null; echo '__AI_SEP__'; "
+            "/etc/init.d/dnsmasq running >/dev/null 2>&1 && echo running || echo stopped"
+        )
+        transport = self.open()
+        try:
+            result = self.run(transport, script, timeout=90.0)
+        finally:
+            transport.close()
+
+        status: dict[str, Any] = {
+            "service": {"name": "dnsmasq", "running": False, "enabled": True, "configured": True},
+            "upstream": [],
+            "servers": [],
+            "domain": None,
+            "hosts": [],
+            "counts": {"servers": 0, "hosts": 0},
+        }
+        if not result.ok:
+            status["error"] = result.stderr or "Cannot reach router."
+            return status
+
+        parts = result.stdout.split("__AI_SEP__")
+        # UCI dnsmasq config (upstream override + local domain).
+        for raw in (parts[0] or "").splitlines():
+            line = raw.rstrip("\r").strip()
+            if not line or "=" not in line or not line.startswith("dhcp."):
+                continue
+            key, _, raw_value = line.partition("=")
+            value = raw_value.strip().strip("'\"").strip()
+            if key == "dhcp.dnsmasq" or key.startswith("dhcp.dnsmasq["):
+                continue
+            if key.startswith("dhcp.dnsmasq"):
+                option = key.rsplit(".", 1)[-1]
+                if option == "server" and value not in status["servers"]:
+                    status["servers"].append(value)
+                elif option == "domain" and value:
+                    status["domain"] = value
+
+        # Upstream nameservers from resolv.conf.
+        for raw in (parts[1] or "").splitlines():
+            match = self._DNS_NAMESERVER_PATTERN.match(raw)
+            if match and match.group(1) not in status["upstream"]:
+                status["upstream"].append(match.group(1))
+
+        # Static /etc/hosts entries (ip -> first hostname).
+        for raw in (parts[2] or "").splitlines():
+            match = self._DNS_HOST_LINE.match(raw)
+            if not match:
+                continue
+            ip, hostname = match.group(1), match.group(2)
+            try:
+                ipaddress.ip_address(ip)
+            except ValueError:
+                continue
+            if hostname.startswith("#"):
+                continue
+            status["hosts"].append({"ip": ip, "hostname": hostname})
+
+        run_state = (parts[3] or "").strip() if len(parts) > 3 else ""
+        status["service"]["running"] = run_state == "running"
+        if run_state == "stopped":
+            status["service"]["enabled"] = False
+        status["counts"]["servers"] = len(status["servers"])
+        status["counts"]["hosts"] = len(status["hosts"])
+        return status
+
+    def dns_set_enabled(self, *, enabled: bool) -> dict[str, Any]:
+        """Enable or disable the dnsmasq DNS forwarder."""
+        value = "1" if enabled else "0"
+        ok, _ = self._dns_run(
+            f"uci set dhcp.@dnsmasq[0].enable_dnsmasq='{value}' && "
+            "uci commit dhcp && /etc/init.d/dnsmasq restart"
+        )
+        label = "Enabled" if enabled else "Disabled"
+        if not ok:
+            return {"ok": False, "message": f"Could not {label.lower()} the DNS server."}
+        return {"ok": True, "message": f"DNS server {label.lower()}."}
+
+    def dns_add_server(self, *, server: str) -> dict[str, Any]:
+        """Add an upstream DNS server to the dnsmasq ``server`` list."""
+        if not server or not self._DNS_SERVER_PATTERN.match(server):
+            raise RouterManagementError("Invalid DNS server address.")
+        ok, _ = self._dns_run(
+            f"uci add_list dhcp.@dnsmasq[0].server={self._shell_single(server)} && "
+            "uci commit dhcp && /etc/init.d/dnsmasq reload"
+        )
+        if not ok:
+            return {"ok": False, "message": f"Could not add upstream server {server}."}
+        return {"ok": True, "message": f"Added upstream server {server}."}
+
+    def dns_remove_server(self, *, server: str) -> dict[str, Any]:
+        """Remove an upstream DNS server from the dnsmasq ``server`` list."""
+        if not server or not self._DNS_SERVER_PATTERN.match(server):
+            raise RouterManagementError("Invalid DNS server address.")
+        ok, _ = self._dns_run(
+            f"uci del_list dhcp.@dnsmasq[0].server={self._shell_single(server)} && "
+            "uci commit dhcp && /etc/init.d/dnsmasq reload"
+        )
+        if not ok:
+            return {"ok": False, "message": f"Could not remove upstream server {server}."}
+        return {"ok": True, "message": f"Removed upstream server {server}."}
+
+    def dns_add_host(self, *, hostname: str, ip: str) -> dict[str, Any]:
+        """Append an ``ip hostname`` entry to ``/etc/hosts`` (safe add)."""
+        self._validate_dns_host(hostname=hostname, ip=ip)
+        ok, _ = self._dns_run(
+            f"grep -q -e {self._shell_single(hostname)} /etc/hosts || "
+            f"printf '%s\\t%s\\n' {self._shell_single(ip)} "
+            f"{self._shell_single(hostname)} >> /etc/hosts"
+        )
+        if not ok:
+            return {"ok": False, "message": f"Could not add host entry for {hostname}."}
+        return {"ok": True, "message": f"Host entry for {hostname} added."}
+
+    def dns_remove_host(self, *, hostname: str, ip: str) -> dict[str, Any]:
+        """Remove a matching ``ip hostname`` line from ``/etc/hosts``."""
+        self._validate_dns_host(hostname=hostname, ip=ip)
+        escaped = re.escape(self._shell_single(hostname))
+        ok, _ = self._dns_run(
+            f"sed -i -e {self._shell_single(f'/{escaped}/d')} /etc/hosts"
+        )
+        if not ok:
+            return {"ok": False, "message": f"Could not remove host entry for {hostname}."}
+        return {"ok": True, "message": f"Host entry for {hostname} removed."}
+
+    def run_dns_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        server: str | None,
+        hostname: str | None,
+        ip: str | None,
+        enabled: bool,
+    ) -> ManagementJob:
+        """Execute a DNS change inside a tracked job.
+
+        Actions: ``reload`` / ``restart`` (dnsmasq), ``set-enabled``,
+        ``add-server`` / ``remove-server``, ``add-host`` / ``remove-host``.
+        """
+        self._jobs.transition(job_id, "running", message="Applying DNS change…")
+        try:
+            if action in ("reload", "restart"):
+                result = self.action("reload-dhcp" if action == "reload" else "restart-dnsmasq")
+                result["message"] = (
+                    "DNS reloaded." if action == "reload" else "DNS server restarted."
+                )
+            elif action == "set-enabled":
+                result = self.dns_set_enabled(enabled=enabled)
+            elif action == "add-server":
+                result = self.dns_add_server(server=server or "")
+            elif action == "remove-server":
+                result = self.dns_remove_server(server=server or "")
+            elif action == "add-host":
+                result = self.dns_add_host(hostname=hostname or "", ip=ip or "")
+            elif action == "remove-host":
+                result = self.dns_remove_host(hostname=hostname or "", ip=ip or "")
+            else:
+                raise RouterManagementError(f"Unsupported DNS action: {action}")
+            self._jobs.transition(job_id, "succeeded", message=result["message"], result=result)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("DNS action %r failed", action)
+            self._jobs.transition(
+                job_id,
+                "failed",
+                error=str(exc),
+                message=f"DNS change failed: {exc}",
             )
         return self._jobs.get(job_id)  # type: ignore[return-value]
 

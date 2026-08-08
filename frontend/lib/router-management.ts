@@ -77,7 +77,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system" | "packages" | "storage" | "services";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "dns" | "network" | "system" | "packages" | "storage" | "services";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -110,6 +110,7 @@ export type JobRequest = {
   hostname?: string;
   ip?: string;
   mac?: string;
+  server?: string;
   timezone?: string;
   language?: string;
   notes?: string;
@@ -245,6 +246,56 @@ export function runDhcpHost(
     { kind: "dhcp", action, confirmed: true, ...payload },
     signal,
   );
+}
+
+export type DnsHost = {
+  ip: string;
+  hostname: string;
+};
+
+export type DnsInfo = {
+  ok: boolean;
+  service: {
+    name: string;
+    running: boolean;
+    enabled: boolean;
+    configured: boolean;
+  };
+  upstream: string[];
+  servers: string[];
+  domain: string | null;
+  hosts: DnsHost[];
+  counts: {
+    servers: number;
+    hosts: number;
+  };
+  error?: string | null;
+};
+
+export type DnsAction =
+  | "reload"
+  | "restart"
+  | "set-enabled"
+  | "add-server"
+  | "remove-server"
+  | "add-host"
+  | "remove-host";
+
+export function fetchDnsInfo(signal?: AbortSignal): Promise<DnsInfo> {
+  return request<DnsInfo>("/router/management/dns", undefined, signal);
+}
+
+export function runDnsJob(
+  action: DnsAction,
+  payload: {
+    server?: string;
+    hostname?: string;
+    ip?: string;
+    enabled?: boolean;
+  } = {},
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "dns", action, confirmed: true, ...payload }, signal);
 }
 
 export type NetworkAction =
@@ -469,4 +520,153 @@ export function runServiceAction(
     { method: "POST" },
     signal,
   );
+}
+
+export type FirewallZone = {
+  name: string;
+  section: string;
+  enabled: boolean;
+  family: string | null;
+  input: string | null;
+  output: string | null;
+  forward: string | null;
+  masquerade: boolean;
+  mtu_fix: boolean;
+  network: string | string[] | null;
+};
+
+export type FirewallInterface = {
+  name: string;
+  device: string | null;
+  up: boolean;
+  proto: string | null;
+};
+
+export type FirewallRule = {
+  name: string;
+  section: string;
+  enabled: boolean;
+  target: string | null;
+  src: string | null;
+  dest: string | null;
+  proto: string | null;
+  family: string | null;
+  src_port: string | null;
+  dest_port: string | null;
+};
+
+export type FirewallPortForward = {
+  name: string;
+  section: string;
+  enabled: boolean;
+  target: string | null;
+  proto: string | null;
+  src: string | null;
+  src_dport: string | null;
+  src_ip: string | null;
+  dest: string | null;
+  dest_ip: string | null;
+  dest_port: string | null;
+  family: string | null;
+};
+
+export type FirewallForward = {
+  name: string;
+  section: string;
+  enabled: boolean;
+  src: string | null;
+  dest: string | null;
+  family: string | null;
+};
+
+export type FirewallNat = {
+  name: string;
+  section: string;
+  enabled: boolean;
+  target: string | null;
+  proto: string | null;
+  family: string | null;
+  src: string | null;
+  dest: string | null;
+  src_dport: string | null;
+  dest_ip: string | null;
+  dest_port: string | null;
+};
+
+export type FirewallIpSet = {
+  name: string;
+  section: string;
+  enabled: boolean;
+  family: string | null;
+  match: string | null;
+  entries: string[];
+  count: number;
+};
+
+export type FirewallInclude = {
+  name: string;
+  section: string;
+  path: string | null;
+  enabled: boolean;
+};
+
+export type FirewallDefaults = {
+  input: string | null;
+  output: string | null;
+  forward: string | null;
+  masquerade: boolean;
+  syn_flood: boolean;
+  osf: boolean;
+  mtu: number | null;
+};
+
+export type FirewallInfo = {
+  generated_at: string;
+  enabled: boolean;
+  running: boolean;
+  version: string | null;
+  defaults: FirewallDefaults | null;
+  zones: FirewallZone[];
+  rules: FirewallRule[];
+  port_forwards: FirewallPortForward[];
+  forwardings: FirewallForward[];
+  nat: FirewallNat[];
+  includes: FirewallInclude[];
+  ipsets: FirewallIpSet[];
+  ipsets_available: boolean;
+  interfaces: FirewallInterface[];
+  conntrack: { max: number | null; count: number | null } | null;
+  counts: {
+    zones: number;
+    rules: number;
+    port_forwards: number;
+    forwardings: number;
+    nat: number;
+    includes: number;
+    ipsets: number;
+  };
+};
+
+export type FirewallAction =
+  | "restart"
+  | "reload"
+  | "enable"
+  | "disable"
+  | "enable-rule"
+  | "disable-rule"
+  | "enable-zone"
+  | "disable-zone"
+  | "enable-forwarding"
+  | "disable-forwarding";
+
+export function fetchFirewallInfo(signal?: AbortSignal): Promise<FirewallInfo> {
+  return request<FirewallInfo>("/router/management/firewall", undefined, signal);
+}
+
+export function runFirewallAction(
+  action: FirewallAction,
+  section?: string,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return startJob({ kind: "firewall", action, section, confirmed: true }, signal);
 }

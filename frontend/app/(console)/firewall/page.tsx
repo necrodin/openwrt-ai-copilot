@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { FirewallActions } from "@/components/firewall/firewall-actions";
+import { FirewallConfiguration } from "@/components/firewall/firewall-configuration";
+import { FirewallForwarding } from "@/components/firewall/firewall-forwarding";
 import { FirewallForwards } from "@/components/firewall/firewall-forwards";
 import { FirewallNatTable } from "@/components/firewall/firewall-nat";
 import { FirewallOverview } from "@/components/firewall/firewall-overview";
@@ -43,8 +45,8 @@ export default function FirewallPage() {
     updatedAt,
     busy,
     notice,
-    toggleRule,
-    reload,
+    dismissNotice,
+    runAction,
   } = useFirewall();
 
   const [routers, setRouters] = useState<SavedRouter[] | null>(null);
@@ -128,7 +130,7 @@ export default function FirewallPage() {
             ) : null}
             {firewall ? (
               <StatusBadge
-                label={`${firewall.zones.length} zones · ${firewall.rules.length} rules`}
+                label={`${firewall.counts.zones} zones · ${firewall.counts.rules} rules`}
                 tone="neutral"
                 dot={false}
               />
@@ -158,15 +160,20 @@ export default function FirewallPage() {
       ) : (
         <div className="space-y-8">
           {notice ? (
-            <p
-              className={
-                notice.tone === "success"
-                  ? "rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"
-                  : "rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              }
-            >
-              {notice.message}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p
+                className={
+                  notice.tone === "success"
+                    ? "rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"
+                    : "rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                }
+              >
+                {notice.message}
+              </p>
+              <Button variant="ghost" size="sm" onClick={dismissNotice}>
+                Dismiss
+              </Button>
+            </div>
           ) : null}
 
           <section className="space-y-3">
@@ -180,10 +187,16 @@ export default function FirewallPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Zones</h2>
               <span className="text-xs text-muted-foreground">
-                {firewall.zones.length} zones
+                Toggle a zone to allow or block traffic through it
               </span>
             </div>
-            <FirewallZones zones={firewall.zones} />
+            <FirewallZones
+              zones={firewall.zones}
+              busy={busy}
+              onToggle={(section, enabled) =>
+                runAction(enabled ? "enable-zone" : "disable-zone", section)
+              }
+            />
           </section>
 
           <section className="space-y-3">
@@ -193,24 +206,46 @@ export default function FirewallPage() {
                 Enable or disable a rule to apply it live
               </span>
             </div>
-            <FirewallRules rules={firewall.rules} busy={busy} onToggle={toggleRule} />
+            <FirewallRules
+              rules={firewall.rules}
+              busy={busy}
+              onToggle={(section, enabled) =>
+                runAction(enabled ? "enable-rule" : "disable-rule", section)
+              }
+            />
           </section>
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Port Forwards</h2>
               <span className="text-xs text-muted-foreground">
-                {firewall.forwards.length} forwards
+                {firewall.counts.port_forwards} forwards
               </span>
             </div>
-            <FirewallForwards forwards={firewall.forwards} />
+            <FirewallForwards forwards={firewall.port_forwards} />
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Forwarding</h2>
+              <span className="text-xs text-muted-foreground">
+                Allow traffic between zones
+              </span>
+            </div>
+            <FirewallForwarding
+              forwardings={firewall.forwardings}
+              busy={busy}
+              onToggle={(section, enabled) =>
+                runAction(enabled ? "enable-forwarding" : "disable-forwarding", section)
+              }
+            />
           </section>
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">NAT</h2>
               <span className="text-xs text-muted-foreground">
-                {firewall.nat.length} rules
+                {firewall.counts.nat} rules
               </span>
             </div>
             <FirewallNatTable rules={firewall.nat} />
@@ -218,9 +253,16 @@ export default function FirewallPage() {
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Configuration</h2>
+            </div>
+            <FirewallConfiguration firewall={firewall} />
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Actions</h2>
             </div>
-            <FirewallActions busy={busy} onReload={reload} />
+            <FirewallActions firewall={firewall} busy={busy} onAction={runAction} />
           </section>
         </div>
       )}

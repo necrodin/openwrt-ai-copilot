@@ -11,6 +11,7 @@ import {
   saveSystemConfig,
   startJob,
   type DhcpHostPayload,
+  type FirewallAction,
   type JobRequest,
   type ManagementJob,
   type NetworkAction,
@@ -34,14 +35,20 @@ export type ManagementJobRunner = {
   busy: boolean;
   error: string | null;
   runAction: (action: string) => Promise<ManagementJob>;
+  runFirewall: (action: FirewallAction, section?: string) => Promise<ManagementJob>;
   runFirewallToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runWirelessToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
+  runWirelessRadio: (section: string, enabled: boolean) => Promise<ManagementJob>;
   runVpnToggle: (section: string, enabled: boolean) => Promise<ManagementJob>;
   setDhcpEnabled: (enabled: boolean) => Promise<ManagementJob>;
   addDhcpHost: (payload: DhcpHostPayload) => Promise<ManagementJob>;
   editDhcpHost: (payload: DhcpHostPayload) => Promise<ManagementJob>;
   deleteDhcpHost: (section: string) => Promise<ManagementJob>;
   toggleDhcpHost: (section: string, enabled: boolean) => Promise<ManagementJob>;
+  runDns: (
+    action: "reload" | "restart" | "set-enabled" | "add-server" | "remove-server" | "add-host" | "remove-host",
+    payload?: { server?: string; hostname?: string; ip?: string; enabled?: boolean },
+  ) => Promise<ManagementJob>;
   runNetwork: (action: NetworkAction, section: string) => Promise<ManagementJob>;
   runPackage: (action: "install" | "remove" | "upgrade" | "reinstall" | "update-feeds", name?: string) => Promise<ManagementJob>;
   runStorage: (action: "mount" | "unmount" | "remount", target: string) => Promise<ManagementJob>;
@@ -143,9 +150,21 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runFirewall = useCallback(
+    (action: FirewallAction, section?: string) =>
+      begin({ kind: "firewall", action, section, confirmed: true }, true),
+    [begin],
+  );
+
   const runWirelessToggle = useCallback(
     (section: string, enabled: boolean) =>
       begin({ kind: "wireless", section, enabled, confirmed: true }, true),
+    [begin],
+  );
+
+  const runWirelessRadio = useCallback(
+    (section: string, enabled: boolean) =>
+      begin({ kind: "wireless", action: enabled ? "enable-radio" : "disable-radio", section, confirmed: true }, true),
     [begin],
   );
 
@@ -181,6 +200,14 @@ export function useManagementJob(): ManagementJobRunner {
   const toggleDhcpHost = useCallback(
     (section: string, enabled: boolean) =>
       begin({ kind: "dhcp", action: "host-toggle", section, enabled, confirmed: true }, true),
+    [begin],
+  );
+
+  const runDns = useCallback(
+    (
+      action: "reload" | "restart" | "set-enabled" | "add-server" | "remove-server" | "add-host" | "remove-host",
+      payload: { server?: string; hostname?: string; ip?: string; enabled?: boolean } = {},
+    ) => begin({ kind: "dns", action, confirmed: true, ...payload }, true),
     [begin],
   );
 
@@ -292,14 +319,17 @@ export function useManagementJob(): ManagementJobRunner {
     busy,
     error,
     runAction,
+    runFirewall,
     runFirewallToggle,
     runWirelessToggle,
+    runWirelessRadio,
     runVpnToggle,
     setDhcpEnabled,
     addDhcpHost,
     editDhcpHost,
     deleteDhcpHost,
     toggleDhcpHost,
+    runDns,
     runNetwork,
     runPackage,
     runStorage,

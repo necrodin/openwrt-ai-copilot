@@ -3,9 +3,9 @@
 import { useCallback, useState } from "react";
 
 import {
-  fetchFirewallInfo,
-  type FirewallAction,
-  type FirewallInfo,
+  fetchDnsInfo,
+  type DnsAction,
+  type DnsInfo,
   type ManagementJob,
 } from "@/lib/router-management";
 import { useDashboardData } from "@/hooks/use-dashboard-data";
@@ -14,12 +14,19 @@ import { usePolling } from "@/hooks/use-polling";
 import type { ConnectionStatus } from "@/lib/dashboard-utils";
 import type { Source } from "@/lib/dashboard";
 
-const FIREWALL_POLL_MS = 10_000;
+const DNS_POLL_MS = 10_000;
 
-export type FirewallNotice = { tone: "success" | "danger"; message: string };
+export type DnsNotice = { tone: "success" | "danger"; message: string };
 
-export type FirewallDataResult = {
-  firewall: FirewallInfo | null;
+export type DnsRunPayload = {
+  server?: string;
+  hostname?: string;
+  ip?: string;
+  enabled?: boolean;
+};
+
+export type DnsDataResult = {
+  dns: DnsInfo | null;
   status: ConnectionStatus;
   loading: boolean;
   error: string | null;
@@ -30,9 +37,9 @@ export type FirewallDataResult = {
   refetch: () => void;
   busy: boolean;
   job: ManagementJob | null;
-  notice: FirewallNotice | null;
+  notice: DnsNotice | null;
   dismissNotice: () => void;
-  runAction: (action: FirewallAction, section?: string) => Promise<void>;
+  run: (action: DnsAction, payload?: DnsRunPayload) => Promise<void>;
 };
 
 function describe(job: ManagementJob): string {
@@ -45,67 +52,65 @@ function message(error: unknown): string {
 }
 
 /**
- * Firewall configuration and management.
+ * DNS / dnsmasq forwarder configuration and management.
  *
- * Polls the management API for the live UCI firewall configuration and routes
- * every mutation (restart, reload, enable/disable service, per-section rule /
- * zone / forwarding toggles) through the tracked management job framework.
- * After a successful change the inventory is re-fetched so the UI reflects the
- * new state immediately.
+ * Polls the management API for the live DNS inventory (upstream servers,
+ * static hosts, domain) and routes every mutation (reload, restart, enable /
+ * disable the service, add/remove upstream servers and static hosts) through
+ * the tracked management job framework. After a successful change the
+ * inventory is re-fetched so the UI reflects the new state immediately.
  */
-export function useFirewall(): FirewallDataResult {
-  const firewallPoll = usePolling<FirewallInfo>(
-    useCallback((signal) => fetchFirewallInfo(signal), []),
-    { intervalMs: FIREWALL_POLL_MS },
+export function useDns(): DnsDataResult {
+  const dnsPoll = usePolling<DnsInfo>(
+    useCallback((signal) => fetchDnsInfo(signal), []),
+    { intervalMs: DNS_POLL_MS },
   );
   const { update, status } = useDashboardData();
   const runner = useManagementJob();
-  const [notice, setNotice] = useState<FirewallNotice | null>(null);
+  const [notice, setNotice] = useState<DnsNotice | null>(null);
 
-  const firewall = firewallPoll.data;
-  const updatedAt = firewall?.generated_at ?? null;
+  const dns = dnsPoll.data;
+  const updatedAt = dnsPoll.data ? (update?.sent_at ?? null) : null;
   const routerLabel = update?.snapshot
     ? update.snapshot.meta.model || update.snapshot.meta.board || "router"
     : "router";
 
-  const refetchFirewall = firewallPoll.refetch;
-
-  const announce = useCallback((tone: FirewallNotice["tone"], messageText: string) => {
+  const announce = useCallback((tone: DnsNotice["tone"], messageText: string) => {
     setNotice({ tone, message: messageText });
   }, []);
 
-  const runAction = useCallback(
-    async (action: FirewallAction, section?: string) => {
+  const run = useCallback(
+    async (action: DnsAction, payload: DnsRunPayload = {}) => {
       setNotice(null);
       try {
-        const job = await runner.runFirewall(action, section);
+        const job = await runner.runDns(action, payload);
         announce(job.status === "succeeded" ? "success" : "danger", describe(job));
         if (job.status === "succeeded") {
-          refetchFirewall();
+          dnsPoll.refetch();
         }
       } catch (e) {
         announce("danger", message(e));
       }
     },
-    [runner, announce, refetchFirewall],
+    [runner, announce, dnsPoll],
   );
 
   const dismissNotice = useCallback(() => setNotice(null), []);
 
   return {
-    firewall,
+    dns,
     status,
-    loading: firewallPoll.loading,
-    error: firewallPoll.error,
+    loading: dnsPoll.loading,
+    error: dnsPoll.error,
     connected: update?.connected ?? false,
     source: update?.source ?? null,
     routerLabel,
     updatedAt,
-    refetch: firewallPoll.refetch,
+    refetch: dnsPoll.refetch,
     busy: runner.busy,
     job: runner.job,
     notice,
     dismissNotice,
-    runAction,
+    run,
   };
 }

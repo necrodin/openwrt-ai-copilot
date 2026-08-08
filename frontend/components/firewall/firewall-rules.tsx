@@ -3,7 +3,7 @@
 import { Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import type { FirewallRule } from "@/lib/dashboard";
+import type { FirewallRule } from "@/lib/router-management";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

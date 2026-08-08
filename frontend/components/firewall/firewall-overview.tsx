@@ -2,7 +2,7 @@
 
 import { Activity, ShieldCheck, SlidersHorizontal } from "lucide-react";
 
-import type { FirewallInfo } from "@/lib/dashboard";
+import type { FirewallInfo } from "@/lib/router-management";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { PolicyBadge } from "@/components/firewall/policy-badge";
@@ -20,7 +20,6 @@ function conntrackUsage(firewall: FirewallInfo): number | null {
 }
 
 export function FirewallOverview({ firewall }: Props) {
-  const status = firewall.status;
   const usage = conntrackUsage(firewall);
 
   return (
@@ -116,21 +115,21 @@ export function FirewallOverview({ firewall }: Props) {
               <span className="text-muted-foreground">Firewall</span>
               <div className="flex gap-2">
                 <StatusBadge
-                  label={status?.running ? "Running" : "Stopped"}
-                  tone={status?.running ? "success" : "danger"}
+                  label={firewall.running ? "Running" : "Stopped"}
+                  tone={firewall.running ? "success" : "danger"}
                   dot
                 />
                 <StatusBadge
-                  label={status?.enabled ? "Enabled" : "Disabled"}
-                  tone={status?.enabled ? "success" : "danger"}
+                  label={firewall.enabled ? "Enabled" : "Disabled"}
+                  tone={firewall.enabled ? "success" : "danger"}
                   dot={false}
                 />
               </div>
             </div>
-            {status?.version ? (
+            {firewall.version ? (
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Backend</span>
-                <span className="font-medium">{status.version}</span>
+                <span className="font-medium">{firewall.version}</span>
               </div>
             ) : null}
             {firewall.conntrack && usage !== null ? (

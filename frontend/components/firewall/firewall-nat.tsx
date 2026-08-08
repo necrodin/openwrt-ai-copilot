@@ -1,6 +1,6 @@
 "use client";
 
-import type { FirewallNat } from "@/lib/dashboard";
+import type { FirewallNat } from "@/lib/router-management";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/dashboard/widget";
 import { PolicyBadge } from "@/components/firewall/policy-badge";

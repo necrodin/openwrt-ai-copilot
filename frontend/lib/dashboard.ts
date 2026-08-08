@@ -177,7 +177,9 @@ export const EMPTY_FIREWALL: FirewallInfo = {
 
 export type WifiRadio = {
   name: string;
+  section: string;
   up: boolean;
+  enabled: boolean;
   mode: string | null;
   band: string | null;
   channel: number | null;

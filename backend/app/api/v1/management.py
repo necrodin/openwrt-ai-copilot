@@ -43,6 +43,7 @@ JOB_KINDS = {
     "wireless",
     "vpn",
     "dhcp",
+    "dns",
     "network",
     "system",
     "packages",
@@ -69,6 +70,7 @@ class ManagementJobRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=512)
     name: str | None = Field(default=None, max_length=128)
     target: str | None = Field(default=None, max_length=512)
+    server: str | None = Field(default=None, max_length=253)
 
 
 def _service(request: Request) -> RouterManagementService:
@@ -141,6 +143,24 @@ def services_index(request: Request) -> dict:
     """Return the full service inventory (procd/ubus or init.d fallback)."""
     try:
         return _service(request).services()
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/firewall")
+def firewall_config(request: Request) -> dict:
+    """Return the complete firewall configuration (zones, rules, forwards)."""
+    try:
+        return _service(request).firewall()
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/router/management/dns")
+def dns_config(request: Request) -> dict:
+    """Return the DNS/forwarder configuration (servers, hosts, domain)."""
+    try:
+        return _service(request).collect_dns()
     except RouterManagementError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -249,21 +269,37 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
         return _job_dict(job)
 
     if payload.kind == "firewall":
-        if not payload.section:
+        # Explicit actions (restart / reload / enable / disable and section
+        # toggles) through the generic firewall job; a bare section toggle falls
+        # back to rule enable/disable for backward compatibility.
+        action = payload.action
+        if payload.action is None:
+            action = "enable-rule" if payload.enabled else "disable-rule"
+        section_toggles = {
+            "enable-rule",
+            "disable-rule",
+            "enable-zone",
+            "disable-zone",
+            "enable-forwarding",
+            "disable-forwarding",
+        }
+        if action in section_toggles and not payload.section:
             raise HTTPException(status_code=422, detail="A firewall section is required.")
-        if not payload.confirmed:
+        resettable_actions = {"restart", "reload", "enable", "disable", *section_toggles}
+        if action in resettable_actions and not payload.confirmed:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Confirmation required: send confirmed=true to change the "
-                    "firewall rule on the router."
+                    "Confirmation required: send confirmed=true to change "
+                    "the firewall configuration on the router."
                 ),
             )
         job = service.job_store.create("firewall", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
-                service.run_firewall_toggle_job,
+                service.run_firewall_job,
                 job.id,
+                action=action,
                 section=payload.section,
                 enabled=payload.enabled,
             )
@@ -271,7 +307,12 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
         return _job_dict(job)
 
     if payload.kind == "wireless":
-        if not payload.section:
+        if not payload.action:
+            action = f"{'enable' if payload.enabled else 'disable'}-ssid"
+        else:
+            action = payload.action
+        TOGGLE_ACTIONS = ("enable-ssid", "disable-ssid", "enable-radio", "disable-radio")
+        if action in TOGGLE_ACTIONS and not payload.section:
             raise HTTPException(status_code=422, detail="A wireless section is required.")
         if not payload.confirmed:
             raise HTTPException(
@@ -284,8 +325,9 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
         job = service.job_store.create("wireless", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
-                service.run_wireless_toggle_job,
+                service.run_wireless_job,
                 job.id,
+                action=action,
                 section=payload.section,
                 enabled=payload.enabled,
             )
@@ -336,6 +378,31 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                 hostname=payload.hostname,
                 ip=payload.ip,
                 mac=payload.mac,
+            )
+        )
+        return _job_dict(job)
+
+    if payload.kind == "dns":
+        if not payload.action:
+            raise HTTPException(status_code=422, detail="A DNS action is required.")
+        if not payload.confirmed:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Confirmation required: send confirmed=true to change "
+                    "the DNS configuration on the router."
+                ),
+            )
+        job = service.job_store.create("dns", message="Queued")
+        asyncio.create_task(
+            asyncio.to_thread(
+                service.run_dns_job,
+                job.id,
+                action=payload.action,
+                server=payload.server,
+                hostname=payload.hostname,
+                ip=payload.ip,
+                enabled=payload.enabled,
             )
         )
         return _job_dict(job)

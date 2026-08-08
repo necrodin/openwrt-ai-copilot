@@ -43,6 +43,7 @@ export type WirelessDataResult = {
   busy: boolean;
   notice: WirelessNotice | null;
   toggleSsid: (section: string, enabled: boolean) => Promise<void>;
+  toggleRadio: (section: string, enabled: boolean) => Promise<void>;
   reload: () => Promise<void>;
   restart: () => Promise<void>;
   dismissNotice: () => void;
@@ -136,6 +137,32 @@ export function useWireless(): WirelessDataResult {
     [runner, refetch],
   );
 
+  const toggleRadio = useCallback(
+    async (section: string, enabled: boolean) => {
+      setNotice(null);
+      const actionLabel = enabled ? "Enable" : "Disable";
+      try {
+        const job = await runner.runWirelessRadio(section, enabled);
+        setNotice({
+          tone: job.status === "succeeded" ? "success" : "danger",
+          message:
+            (job.result as { message?: string } | null)?.message ??
+            job.message ??
+            `${actionLabel} radio completed.`,
+        });
+        if (job.status === "succeeded") {
+          refetch();
+        }
+      } catch (e) {
+        setNotice({
+          tone: "danger",
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    },
+    [runner, refetch],
+  );
+
   const reload = useCallback(async () => {
     setNotice(null);
     try {
@@ -190,6 +217,7 @@ export function useWireless(): WirelessDataResult {
     busy: runner.busy,
     notice,
     toggleSsid,
+    toggleRadio,
     reload,
     restart,
     dismissNotice,

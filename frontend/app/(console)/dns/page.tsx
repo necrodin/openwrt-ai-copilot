@@ -1,19 +1,17 @@
 "use client";
 
-import { Wifi } from "lucide-react";
+import { BookOpenText } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { WirelessActions } from "@/components/wireless/wireless-actions";
-import { WirelessNetworks } from "@/components/wireless/wireless-networks";
-import { WirelessOverview } from "@/components/wireless/wireless-overview";
-import { WirelessRadios } from "@/components/wireless/wireless-radios";
-import { WirelessStations } from "@/components/wireless/wireless-stations";
-import { EmptyState } from "@/components/dashboard/widget";
+import { DnsActions } from "@/components/dns/dns-actions";
+import { DnsHosts } from "@/components/dns/dns-hosts";
+import { DnsOverview } from "@/components/dns/dns-overview";
+import { DnsServers } from "@/components/dns/dns-servers";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, type StatusBadgeTone } from "@/components/ui/status-badge";
-import { useWireless } from "@/hooks/use-wireless";
+import { useDns } from "@/hooks/use-dns";
 import { formatClock, sourceLabel, type ConnectionStatus } from "@/lib/dashboard-utils";
 import { listConnections, type SavedRouter } from "@/lib/onboarding";
 
@@ -30,10 +28,9 @@ function connectionBadge(status: ConnectionStatus): { label: string; tone: Statu
   }
 }
 
-export default function WirelessPage() {
+export default function DnsPage() {
   const {
-    wifi,
-    stations,
+    dns,
     status,
     loading,
     error,
@@ -43,11 +40,8 @@ export default function WirelessPage() {
     updatedAt,
     busy,
     notice,
-    toggleSsid,
-    toggleRadio,
-    reload,
-    restart,
-  } = useWireless();
+    run,
+  } = useDns();
 
   const [routers, setRouters] = useState<SavedRouter[] | null>(null);
 
@@ -83,13 +77,12 @@ export default function WirelessPage() {
     return (
       <div className="mx-auto flex min-h-full w-full max-w-md flex-col items-center justify-center gap-6 p-6 text-center">
         <span className="flex size-12 items-center justify-center rounded-full border bg-muted">
-          <Wifi className="size-6 text-muted-foreground" aria-hidden />
+          <BookOpenText className="size-6 text-muted-foreground" aria-hidden />
         </span>
         <div className="space-y-2">
           <h1 className="text-2xl font-bold tracking-tight">No router connected</h1>
           <p className="text-sm text-muted-foreground">
-            Connect your OpenWrt device to manage radios, SSIDs and connected
-            clients — no demo data.
+            Connect your OpenWrt device to manage DNS — no demo data.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -113,9 +106,9 @@ export default function WirelessPage() {
       <header className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">Wireless</h1>
+            <h1 className="text-2xl font-bold tracking-tight">DNS</h1>
             <p className="text-sm text-muted-foreground">
-              Radios, SSIDs and stations on{" "}
+              Resolver and hosts on{" "}
               <span className="font-medium text-foreground">{routerLabel}</span>
               {" · "}
               {updatedAt
@@ -128,11 +121,10 @@ export default function WirelessPage() {
             {source ? (
               <StatusBadge label={sourceLabel(source)} tone="neutral" />
             ) : null}
-            {wifi ? (
+            {dns ? (
               <StatusBadge
-                label={`${wifi.radios.length} radios · ${stations.length} clients`}
-                tone="neutral"
-                dot={false}
+                label={dns.service.enabled ? "Active" : "Disabled"}
+                tone={dns.service.enabled ? "success" : "danger"}
               />
             ) : null}
           </div>
@@ -153,10 +145,8 @@ export default function WirelessPage() {
 
       {widgetLoading ? (
         <Skeleton className="h-96 w-full rounded-xl" />
-      ) : !wifi ? (
-        <div className="rounded-xl border py-10">
-          <EmptyState message="No wireless configuration available yet." />
-        </div>
+      ) : !dns ? (
+        <Skeleton className="h-96 w-full rounded-xl" />
       ) : (
         <div className="space-y-8">
           {notice ? (
@@ -166,6 +156,7 @@ export default function WirelessPage() {
                   ? "rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400"
                   : "rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
               }
+              role="status"
             >
               {notice.message}
             </p>
@@ -173,46 +164,52 @@ export default function WirelessPage() {
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Overview</h2>
+              <h2 className="text-lg font-semibold">Resolver Overview</h2>
             </div>
-            <WirelessOverview wifi={wifi} />
+            <DnsOverview dns={dns} />
           </section>
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Radios</h2>
+              <h2 className="text-lg font-semibold">Forwarding</h2>
               <span className="text-xs text-muted-foreground">
-                Enable or disable a radio to apply it live
+                {dns.servers.length} override server{dns.servers.length === 1 ? "" : "s"}
               </span>
             </div>
-            <WirelessRadios radios={wifi.radios} busy={busy} onToggle={toggleRadio} />
+            <DnsServers
+              servers={dns.servers}
+              busy={busy}
+              onAdd={(server) => void run("add-server", { server })}
+              onRemove={(server) => void run("remove-server", { server })}
+            />
           </section>
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">SSIDs</h2>
+              <h2 className="text-lg font-semibold">Static Hosts</h2>
               <span className="text-xs text-muted-foreground">
-                Enable or disable a network to apply it live
+                {dns.hosts.length} entry{dns.hosts.length === 1 ? "" : "s"}
               </span>
             </div>
-            <WirelessNetworks networks={wifi.networks} busy={busy} onToggle={toggleSsid} />
-          </section>
-
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Connected Clients</h2>
-              <span className="text-xs text-muted-foreground">
-                {stations.length} connected
-              </span>
-            </div>
-            <WirelessStations stations={stations} />
+            <DnsHosts
+              hosts={dns.hosts}
+              busy={busy}
+              onAdd={(hostname, ip) => void run("add-host", { hostname, ip })}
+              onRemove={(host) => void run("remove-host", { hostname: host.hostname })}
+            />
           </section>
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Actions</h2>
             </div>
-            <WirelessActions busy={busy} onReload={reload} onRestart={restart} />
+            <DnsActions
+              enabled={dns.service.enabled}
+              busy={busy}
+              onSetEnabled={(enabled) => void run("set-enabled", { enabled })}
+              onReload={() => void run("reload")}
+              onRestart={() => void run("restart")}
+            />
           </section>
         </div>
       )}

@@ -1,0 +1,18 @@
+default_provider: ollama
+
+providers:
+  ollama:
+    enabled: true
+    base_url: http://127.0.0.1:11434
+
+    model: qwen3-coder:30b
+    embed_model: nomic-embed-text
+
+  nim:
+    enabled: true
+    base_url: https://integrate.api.nvidia.com/v1
+    api_key_env: NVIDIA_API_KEY
+
+    model: nvidia/deepseek-ai/deepseek-v4-pro
+    embed_model: nvidia/NV-Embed-v2
+    rerank_model: nvidia/llama-3.2-nv-rerankqa-1b-v2
