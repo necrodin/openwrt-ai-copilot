@@ -77,7 +77,7 @@ export type LogResponse = {
   generated_at: string;
 };
 
-export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system" | "packages" | "storage";
+export type JobKind = "action" | "backup" | "bundle" | "restore" | "firewall" | "wireless" | "vpn" | "dhcp" | "network" | "system" | "packages" | "storage" | "services";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export type ManagementJob = {
@@ -431,4 +431,42 @@ export function runStorageAction(
   signal?: AbortSignal,
 ): Promise<ManagementJob> {
   return startJob({ kind: "storage", action, target, confirmed: true }, signal);
+}
+
+export type ServiceAction = "start" | "stop" | "restart" | "enable" | "disable";
+
+export type RouterService = {
+  name: string;
+  description: string;
+  running: boolean;
+  enabled: boolean | null;
+  pid: number | null;
+  uptime: number | null;
+  restart_count: number | null;
+  instances: number;
+};
+
+export type ServicesInfo = {
+  generated_at: string;
+  count: number;
+  running_count: number;
+  enabled_count: number;
+  ubus: boolean;
+  services: RouterService[];
+};
+
+export function fetchServicesInfo(signal?: AbortSignal): Promise<ServicesInfo> {
+  return request<ServicesInfo>("/router/management/services", undefined, signal);
+}
+
+export function runServiceAction(
+  action: ServiceAction,
+  name: string,
+  signal?: AbortSignal,
+): Promise<ManagementJob> {
+  return request<ManagementJob>(
+    `/router/management/services/${encodeURIComponent(name)}/${action}`,
+    { method: "POST" },
+    signal,
+  );
 }

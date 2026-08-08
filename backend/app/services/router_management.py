@@ -125,6 +125,8 @@ JobKind = Literal[
     "network",
     "system",
     "packages",
+    "storage",
+    "services",
 ]
 
 _EXIT_SENTINEL = "__AI_EXIT__="
@@ -1110,6 +1112,218 @@ class RouterManagementService:
             )
         except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
             logger.exception("Storage action %r failed", action)
+            self._jobs.transition(job_id, "failed", error=str(exc))
+        return self._jobs.get(job_id)  # type: ignore[return-value]
+
+    # -- services ---------------------------------------------------------- #
+
+    # Descriptions for the most common OpenWrt services shown in the console;
+    # anything else falls back to a generic "managed service" label.
+    _SERVICE_DESCRIPTIONS: dict[str, str] = {
+        "boot": "System boot sequence",
+        "cwmp": "TR-069 remote management agent",
+        "dnsmasq": "DNS forwarder and DHCP server",
+        "dropbear": "SSH server for remote access",
+        "firewall": "Stateful packet filter",
+        "gpsd": "GPS daemon for location services",
+        "hostapd": "802.11 access point daemon",
+        "httpd": "Embedded HTTP server",
+        "led": "LED state configuration",
+        "log": "System logging configuration",
+        "monit": "Process supervision and monitoring",
+        "mwan3": "Multi-WAN load balancing and failover",
+        "network": "Network interface configuration",
+        "odhcpd": "DHCPv6 and Router Advertisement daemon",
+        "openvpn": "OpenVPN tunnel service",
+        "pbr": "Policy-based routing rules",
+        "qmi": "3G/4G modem routing",
+        "rpcd": "OpenWrt ubus RPC daemon",
+        "smartd": "S.M.A.R.T. disk monitoring daemon",
+        "sqm": "Smart Queue Management",
+        "sysntpd": "NTP-based system clock",
+        "tailscaled": "Tailscale mesh VPN daemon",
+        "uhttpd": "Lightweight HTTP server (LuCI)",
+        "ucod": "UCI data model daemon",
+        "upnpd": "UPnP reachability service",
+        "wireless": "Wireless configuration",
+        "wsdd": "Web Services Dynamic Discovery daemon",
+    }
+
+    _SERVICE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+    _SERVICE_ACTIONS = frozenset({"start", "stop", "restart", "enable", "disable"})
+
+    # One-shot gather of the procd ubus service registry (JSON), the per-service
+    # boot-enable state reported by the rc common layer, and a readable /proc
+    # process table used as the BusyBox fallback when ubus is unavailable.
+    _SERVICES_GATHER_CMD = (
+        "ubus call service list 2>/dev/null; "
+        "printf '__AI_ENABLED__\\n'; "
+        "for s in /etc/init.d/*; do "
+        "[ -x \"$s\" ] || continue; "
+        "n=${s##*/}; "
+        "printf '__AI_EN__ %s|%s\\n' \"$n\" \"$(/etc/init.d/\"$n\" enabled 2>/dev/null)\"; "
+        "done; "
+        "printf '__AI_PROC__\\n'; "
+        "for p in /proc/[0-9]*; do "
+        "[ -r \"$p/cmdline\" ] || continue; "
+        "c=$(tr '\\0' ' ' < \"$p/cmdline\" 2>/dev/null); "
+        "[ -z \"$c\" ] && continue; "
+        "printf '__AI_PROCESS__ %s|%s\\n' \"${p##*/}\" \"$c\"; "
+        "done"
+    )
+
+    @staticmethod
+    def _first_matching_pid(procs: list[tuple[str, str]], name: str) -> int | None:
+        """First process whose executable basename matches the service name."""
+        for pid, command in procs:
+            parts = command.split()
+            if parts and parts[0].rsplit("/", 1)[-1] == name:
+                return int(pid) if pid.isdigit() else None
+        return None
+
+    def services(self) -> dict[str, Any]:
+        """Collect all OpenWrt services with state from procd/ubus (or init.d).
+
+        When procd responds, process identity and uptime come from ``ubus call
+        service list``; otherwise a BusyBox fallback matches each init script
+        against the running ``/proc`` command lines.
+        """
+        output = self._pkg_run(self._SERVICES_GATHER_CMD, timeout=60.0).stdout
+
+        ubus_text: list[str] = []
+        enabled: dict[str, bool] = {}
+        procs: list[tuple[str, str]] = []
+        section = "ubus"
+        for line in output.splitlines():
+            stripped = line.rstrip("\r").strip()
+            if stripped == "__AI_ENABLED__":
+                section = "enabled"
+                continue
+            if stripped == "__AI_PROC__":
+                section = "proc"
+                continue
+            if section == "ubus":
+                if stripped:
+                    ubus_text.append(stripped)
+            elif section == "enabled":
+                if stripped.startswith("__AI_EN__ "):
+                    name, _, state = stripped[len("__AI_EN__ "):].partition("|")
+                    enabled[name.strip()] = state.strip() == "enabled"
+            elif section == "proc" and stripped.startswith("__AI_PROCESS__ "):
+                pid, _, command = stripped[len("__AI_PROCESS__ "):].partition("|")
+                procs.append((pid.strip(), command.strip()))
+
+        ubus_data: dict[str, Any] = {}
+        if ubus_text:
+            try:
+                parsed = json.loads("\n".join(ubus_text))
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                ubus_data = parsed
+
+        probes: dict[str, bool] = {}
+        pids: dict[str, int | None] = {}
+        uptimes: dict[str, int | None] = {}
+        instance_counts: dict[str, int] = {}
+        for name, meta in ubus_data.items():
+            if not isinstance(meta, dict):
+                continue
+            instances = meta.get("instances", {})
+            if not isinstance(instances, dict):
+                instances = {}
+            is_running = meta.get("running") is True
+            pid: int | None = None
+            uptime: int | None = None
+            instance_count = 0
+            for instance in instances.values():
+                if not isinstance(instance, dict):
+                    continue
+                instance_count += 1
+                if instance.get("running") is True:
+                    is_running = True
+                if pid is None and isinstance(instance.get("pid"), int) and instance["pid"] > 0:
+                    pid = instance["pid"]
+                if uptime is None and isinstance(instance.get("uptime"), int):
+                    uptime = instance["uptime"]
+            probes[name] = is_running
+            pids[name] = pid
+            uptimes[name] = uptime
+            instance_counts[name] = instance_count
+
+        services: list[dict[str, Any]] = []
+        names = set(enabled) | set(probes)
+        for name in sorted(names):
+            ubus_known = name in probes
+            if ubus_known:
+                running = probes[name]
+                pid = pids[name]
+                uptime = uptimes[name]
+                instances = max(instance_counts[name], 1 if running else 0)
+            else:
+                pid = self._first_matching_pid(procs, name)
+                running = pid is not None
+                uptime = None
+                instances = 1 if running else 0
+            services.append(
+                {
+                    "name": name,
+                    "description": self._SERVICE_DESCRIPTIONS.get(
+                        name,
+                        f"Managed OpenWrt service '{name}'",
+                    ),
+                    "running": running,
+                    "enabled": enabled.get(name),
+                    "pid": pid,
+                    "uptime": uptime,
+                    "restart_count": None,
+                    "instances": instances,
+                }
+            )
+
+        return {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "count": len(services),
+            "running_count": sum(1 for entry in services if entry["running"]),
+            "enabled_count": sum(1 for entry in services if entry["enabled"]),
+            "ubus": bool(ubus_data),
+            "services": services,
+        }
+
+    def run_services_job(
+        self,
+        job_id: str,
+        *,
+        action: str,
+        service: str,
+    ) -> ManagementJob:
+        """Run a service action (start / stop / restart / enable / disable)."""
+        self._jobs.transition(job_id, "running", message=f"{action.capitalize()} '{service}'…")
+        try:
+            if not self._SERVICE_NAME_PATTERN.match(service):
+                raise RouterManagementError("Invalid service name.")
+            if action not in self._SERVICE_ACTIONS:
+                raise RouterManagementError(f"Unsupported service action: {action}")
+            quoted = self._sh_quote(service)
+            result = self._pkg_run(f"/etc/init.d/{quoted} {action}", timeout=120.0)
+            message = (
+                f"Service '{service}' {action}ed."
+                if result.ok
+                else f"Could not {action} '{service}'."
+            )
+            self._jobs.transition(
+                job_id,
+                "succeeded" if result.ok else "failed",
+                message=message,
+                result={
+                    "ok": result.ok,
+                    "detail": result.to_dict(),
+                    "action": action,
+                    "service": service,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
+            logger.exception("Service action %r failed", action)
             self._jobs.transition(job_id, "failed", error=str(exc))
         return self._jobs.get(job_id)  # type: ignore[return-value]
 

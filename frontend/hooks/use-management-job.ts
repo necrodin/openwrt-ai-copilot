@@ -7,12 +7,14 @@ import {
   downloadJobArtifact,
   fetchJob,
   readFileAsBase64,
+  runServiceAction,
   saveSystemConfig,
   startJob,
   type DhcpHostPayload,
   type JobRequest,
   type ManagementJob,
   type NetworkAction,
+  type ServiceAction,
   type SystemConfig,
 } from "@/lib/router-management";
 
@@ -43,6 +45,7 @@ export type ManagementJobRunner = {
   runNetwork: (action: NetworkAction, section: string) => Promise<ManagementJob>;
   runPackage: (action: "install" | "remove" | "upgrade" | "reinstall" | "update-feeds", name?: string) => Promise<ManagementJob>;
   runStorage: (action: "mount" | "unmount" | "remount", target: string) => Promise<ManagementJob>;
+  runService: (action: ServiceAction, name: string) => Promise<ManagementJob>;
   saveSystem: (config: SystemConfig) => Promise<ManagementJob>;
   createBackup: () => Promise<ManagementJob>;
   createBundle: () => Promise<ManagementJob>;
@@ -93,13 +96,14 @@ export function useManagementJob(): ManagementJobRunner {
   }, []);
 
   const begin = useCallback(
-    async (payload: JobRequest, poll: boolean): Promise<ManagementJob> => {
+    async (payload: JobRequest | (() => Promise<ManagementJob>), poll: boolean): Promise<ManagementJob> => {
       active.current = true;
       setError(null);
       setBusy(true);
       setJob(null);
       try {
-        const created = await startJob(payload);
+        const created =
+          typeof payload === "function" ? await payload() : await startJob(payload);
         if (!active.current) {
           return created;
         }
@@ -201,6 +205,12 @@ export function useManagementJob(): ManagementJobRunner {
     [begin],
   );
 
+  const runService = useCallback(
+    (action: ServiceAction, name: string) =>
+      begin(() => runServiceAction(action, name), true),
+    [begin],
+  );
+
   const saveSystem = useCallback(
     (config: SystemConfig) => saveSystemConfig(config),
     [],
@@ -293,6 +303,7 @@ export function useManagementJob(): ManagementJobRunner {
     runNetwork,
     runPackage,
     runStorage,
+    runService,
     saveSystem,
     createBackup,
     createBundle,

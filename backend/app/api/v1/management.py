@@ -136,6 +136,55 @@ def storage(request: Request) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/router/management/services")
+def services_index(request: Request) -> dict:
+    """Return the full service inventory (procd/ubus or init.d fallback)."""
+    try:
+        return _service(request).services()
+    except RouterManagementError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _run_service_action(request: Request, service: str, action: str) -> dict:
+    """Queue a service action as a tracked job and return it for polling."""
+    mgmt = _service(request)
+    job = mgmt.job_store.create("services", message="Queued")
+    asyncio.create_task(
+        asyncio.to_thread(mgmt.run_services_job, job.id, action=action, service=service)
+    )
+    return _job_dict(job)
+
+
+@router.post("/router/management/services/{service}/start")
+def service_start(request: Request, service: str) -> dict:
+    """Start a service and return the tracked job."""
+    return _run_service_action(request, service, "start")
+
+
+@router.post("/router/management/services/{service}/stop")
+def service_stop(request: Request, service: str) -> dict:
+    """Stop a running service and return the tracked job."""
+    return _run_service_action(request, service, "stop")
+
+
+@router.post("/router/management/services/{service}/restart")
+def service_restart(request: Request, service: str) -> dict:
+    """Restart a service and return the tracked job."""
+    return _run_service_action(request, service, "restart")
+
+
+@router.post("/router/management/services/{service}/enable")
+def service_enable(request: Request, service: str) -> dict:
+    """Mark a service to start at boot and return the tracked job."""
+    return _run_service_action(request, service, "enable")
+
+
+@router.post("/router/management/services/{service}/disable")
+def service_disable(request: Request, service: str) -> dict:
+    """Prevent a service from starting at boot and return the tracked job."""
+    return _run_service_action(request, service, "disable")
+
+
 @router.get("/router/management/logs")
 def logs(request: Request, lines: int = 500) -> dict:
     """Return recent system log entries collected via ``logread``."""
