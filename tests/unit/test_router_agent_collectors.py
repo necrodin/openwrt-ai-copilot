@@ -842,7 +842,8 @@ def test_network_collector_detects_bridge_vlan_mtu_and_gateway() -> None:
             "ip -o route show default": (
                 "default via 203.0.113.1 dev eth0 proto static metric 100\n"
             ),
-            "cat /etc/resolv.conf /tmp/resolv.conf.d/*.conf": (
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
                 "nameserver 1.1.1.1\nnameserver 8.8.8.8\n"
             ),
         }
@@ -931,3 +932,259 @@ def test_services_collector_detects_running_enabled_configured() -> None:
     assert services["dropbear"].configured is True
     # Unconfigured service reports as not configured.
     assert services["tailscale"].configured is False
+
+
+def test_network_collector_real_shape_dns_auto_file() -> None:
+    """`resolv.conf.auto` is the real upstream DNS file on modern OpenWrt."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                        }
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(_real_device_status()),
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
+                "nameserver 127.0.0.1\n"
+                "# Interface wan\nnameserver 192.168.1.1\n"
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["dns"] == ["127.0.0.1", "192.168.1.1"]
+
+
+def _real_device_status() -> dict:
+    """The actual ``ubus call network.device status`` shape on OpenWrt 23+.
+
+    Devices are returned as a flat object keyed by device name, with string
+    speed values (``"1000F"``), ``carrier`` for link state, ``macaddr``, and
+    bridge members under ``bridge-members``.
+    """
+    return {
+        "br-lan": {
+            "up": True,
+            "carrier": True,
+            "type": "bridge",
+            "devtype": "bridge",
+            "speed": "1000F",
+            "mtu": 1500,
+            "macaddr": "88:c3:97:85:bb:68",
+            "bridge-members": ["eth0.1", "phy0-ap0", "phy1-ap0"],
+            "bridge-attributes": {"stp": False, "forward_delay": 8},
+        },
+        "eth0": {},
+        "eth0.1": {"up": True, "carrier": True, "devtype": "vlan", "speed": "1000"},
+        "eth0.2": {
+            "up": True,
+            "carrier": True,
+            "type": "Network device",
+            "speed": "1000F",
+        },
+    }
+
+
+def test_network_collector_real_device_shape_flat() -> None:
+    """Modern OpenWrt returns device status as a flat name->info object."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan",
+                            "ipv4-address": [{"address": "192.168.100.1", "mask": 24}],
+                            "ipv6-address": [],
+                        },
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                            "ipv4-address": [{"address": "192.168.1.109", "mask": 24}],
+                            "route": [
+                                {"target": "0.0.0.0", "nexthop": "192.168.1.1", "mask": 0}
+                            ],
+                        },
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(_real_device_status()),
+            "ip -o route show default": "default via 192.168.1.1 dev eth0.2\n",
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    by_name = {i.name: i for i in interfaces}
+    assert "lan" in by_name
+    assert "wan" in by_name
+    lan = by_name["lan"]
+    assert lan.addresses[0].address == "192.168.100.1"
+    assert lan.addresses[0].prefix == 24
+    assert lan.link is True
+    assert lan.mac == "88:c3:97:85:bb:68"
+    assert lan.speed_mbps == 1000
+    assert lan.mtu == 1500
+    assert lan.is_bridge is True
+    assert lan.bridge_members == ["eth0.1", "phy0-ap0", "phy1-ap0"]
+    assert lan.vlan_id is None
+    wan = by_name["wan"]
+    assert wan.speed_mbps == 1000
+    assert wan.device == "eth0.2"
+
+
+def test_network_collector_real_shape_list_of_devices() -> None:
+    """Firmware where device status is list-shaped still merges cleanly."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                        }
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(_real_device_status()),
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    wan = next(i for i in interfaces if i.name == "wan")
+    assert wan.device == "eth0.2"
+    assert wan.up is True
+
+
+def test_network_collector_malformed_device_does_not_crash() -> None:
+    """One malformed device entry is skipped; the rest of the section survives."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan",
+                            "ipv4-address": [{"address": "192.168.100.1", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(
+                {
+                    "br-lan": {
+                        "up": True,
+                        "carrier": True,
+                        "mtu": "not-an-int",
+                        "speed": {"nested": True},
+                        "statistics": {"rx_bytes": "not-a-number", "tx_bytes": None},
+                    }
+                }
+            ),
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    lan = next(i for i in interfaces if i.name == "lan")
+    assert lan.link is True
+    assert lan.rx_bytes is None
+    assert lan.tx_bytes is None
+    assert lan.speed_mbps is None
+    assert lan.mtu is None
+
+
+def test_network_collector_missing_ipv6_key() -> None:
+    """Interfaces without a ``ipv6-address`` key still list their IPv4."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                            "ipv4-address": [{"address": "192.168.1.109", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(_real_device_status()),
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    wan = next(i for i in interfaces if i.name == "wan")
+    assert wan.addresses[0].address == "192.168.1.109"
+    assert wan.addresses[0].family == "ipv4"
+
+
+def test_network_collector_surfaces_standalone_devices() -> None:
+    """Kernel/physical devices no interface references are still surfaced."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan",
+                        },
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                        },
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps(
+                {
+                    "br-lan": {
+                        "up": True,
+                        "carrier": True,
+                        "type": "bridge",
+                        "devtype": "bridge",
+                        "speed": "1000F",
+                        "mtu": 1500,
+                        "macaddr": "88:c3:97:85:bb:68",
+                        "bridge-members": ["eth0.1", "phy0-ap0", "phy1-ap0"],
+                        "bridge-attributes": {"stp": False, "forward_delay": 8},
+                    },
+                    "eth0.2": {"up": True, "carrier": True, "speed": "1000F"},
+                    "eth0": {"up": True, "carrier": True, "speed": "1000F"},
+                    "phy0-ap0": {"up": True, "carrier": True, "type": "Network device"},
+                }
+            ),
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    by_name = {i.name: i for i in interfaces}
+    # eth0 and phy0-ap0 are referenced by no logical interface, so they
+    # surface as standalone device entries for the UI to render.
+    assert "eth0" in by_name
+    eth0 = by_name["eth0"]
+    assert eth0.proto is None
+    assert eth0.device == "eth0"
+    assert eth0.link is True
+    assert eth0.speed_mbps == 1000
+    assert by_name["phy0-ap0"].up is True
+    # Bridge member metadata still flows to the bridge entry itself.
+    assert by_name["lan"].bridge_members == ["eth0.1", "phy0-ap0", "phy1-ap0"]
