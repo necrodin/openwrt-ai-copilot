@@ -2917,7 +2917,7 @@ class RouterManagementService:
         starttime(19) vsize(20) rss(21).
         """
         try:
-            _pid, _, rest = stat.partition(")")
+            _pid, _, rest = stat.rpartition(")")
             cols = rest.split()
             if len(cols) < 22:
                 return None
@@ -2941,17 +2941,21 @@ class RouterManagementService:
             line = line.strip()
             if not line:
                 continue
-            if line.startswith("__AI_CPU_TOTAL__ "):
-                token = line.split(None, 2)[1]
-                if token.isdigit():
-                    cpu_total = int(token)
-            elif line.startswith("__AI_MEM_TOTAL_KB__ "):
-                token = line.split(None, 3)[2]
-                if token.isdigit():
-                    mem_kb = int(token)
+            if line.startswith("__AI_CPU_TOTAL__"):
+                token = line.split(None, 1)
+                if len(token) >= 2 and token[1].isdigit():
+                    cpu_total = int(token[1])
+            elif line.startswith("__AI_MEM_TOTAL_KB__"):
+                token = line.split(None, 1)
+                if len(token) >= 2 and token[1].isdigit():
+                    mem_kb = int(token[1])
             elif "__AI_CMDSEP__" in line:
-                uid, _, rest = line.partition("|__AI_UIDSEP__|")
-                stat, _, cmdline = rest.partition("|__AI_CMDSEP__|")
+                uid_raw, sep, rest = line.partition("|__AI_UIDSEP__|")
+                if not sep:
+                    continue
+                stat, sep, cmdline = rest.partition("|__AI_CMDSEP__|")
+                if not sep:
+                    continue
                 parsed = self._parse_proc_stat(stat)
                 if parsed is None:
                     continue
@@ -2959,10 +2963,14 @@ class RouterManagementService:
                 tokens = stat.split()
                 pid = tokens[0]
                 comm = tokens[1] if len(tokens) > 1 else ""
+                try:
+                    uid = int(uid_raw)
+                except (ValueError, TypeError):
+                    uid = 0
                 rows[pid] = {
                     "comm": comm.strip("()$"),
                     "cmd": cmdline.strip(),
-                    "user": self._uid_name(int(uid)),
+                    "user": self._uid_name(uid),
                     "utime": utime,
                     "stime": stime,
                     "vsz": vsz,

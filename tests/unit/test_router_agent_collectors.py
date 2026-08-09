@@ -47,6 +47,95 @@ def test_cpu_collector_falls_back_to_loadavg() -> None:
     assert cpu.cores == 1
 
 
+def test_cpu_collector_load_fixed_point_array() -> None:
+    """OpenWrt ``ubus system info`` returns load as a fixed-point array (1/65536)."""
+    ctx = make_context(
+        {
+            "ubus call system info": json.dumps(
+                {"load": [32512, 65536, 98304], "uptime": 150773}
+            ),
+            "cat /proc/cpuinfo": "processor\t\t: 0\n",
+        }
+    )
+    cpu = CpuCollector().collect(ctx)
+    assert cpu.load_1 == round(32512 / 65536, 2)
+    assert cpu.load_5 == 1.0
+    assert cpu.load_15 == round(98304 / 65536, 2)
+    assert cpu.uptime_seconds == 150773.0
+
+
+def test_cpu_collector_mips_cpuinfo_model() -> None:
+    """MIPS firmware lacks ``model name``; fall back to ``cpu model``/``system type``."""
+    ctx = make_context(
+        {
+            "ubus call system info": json.dumps({"load": [65536, 32768, 16384]}),
+            "cat /proc/cpuinfo": (
+                "system type\t\t: Qualcomm Atheros QCA956X ver 1 rev 0\n"
+                "machine\t\t\t: Xiaomi AIoT AC2350\n"
+                "processor\t\t: 0\n"
+                "cpu model\t\t: MIPS 74Kc V5.0\n"
+            ),
+        }
+    )
+    cpu = CpuCollector().collect(ctx)
+    assert cpu.cores == 1
+    assert cpu.model == "MIPS 74Kc V5.0"
+    assert cpu.load_1 == 1.0
+    assert cpu.architecture is None
+
+
+def test_cpu_collector_load_fallback_from_loadavg() -> None:
+    """A load array that is truncated fill from /proc/loadavg without inventing NaN."""
+    ctx = make_context(
+        {
+            "ubus call system info": json.dumps({"load": [32768], "uptime": 99}),
+            "cat /proc/loadavg": "0.44 0.33 0.22 1/2 123",
+            "cat /proc/cpuinfo": "processor : 0\n",
+        }
+    )
+    cpu = CpuCollector().collect(ctx)
+    assert cpu.load_1 == 0.5
+    assert cpu.load_5 == 0.33
+    assert cpu.load_15 == 0.22
+
+
+def test_cpu_collector_missing_fields_do_not_crash() -> None:
+    """Empty/malformed ubus output produces zeros/null, never an exception."""
+    ctx = make_context(
+        {
+            "ubus call system info": json.dumps({"load": "not-a-list"}),
+            "cat /proc/cpuinfo": "processor : 0\n",
+        }
+    )
+    cpu = CpuCollector().collect(ctx)
+    assert cpu.load_1 == 0.0
+    assert cpu.load_5 == 0.0
+    assert cpu.load_15 == 0.0
+    assert cpu.cores == 1
+    assert cpu.model is None
+    assert cpu.usage_percent is None
+
+
+def test_cpu_collector_usage_from_proc_stat() -> None:
+    """CPU utilization derives from a /proc/stat delta, not load average."""
+    ctx = make_context(
+        {
+            "head -n1 /proc/stat; sleep 1 2>/dev/null || sleep 0; head -n1 /proc/stat": (
+                "cpu  1000 0 1000 8000 0 0 0 0 0 0\n"
+                "cpu  2000 0 2000 8800 0 0 0 0 0 0\n"
+            )
+        }
+    )
+    cpu = CpuCollector().collect(ctx)
+    total_before = 1000 + 1000 + 8000
+    total_after = 2000 + 2000 + 8800
+    idle_before = 8000
+    idle_after = 8800
+    busy = 1.0 - (idle_after - idle_before) / (total_after - total_before)
+    expected = round(min(100.0, max(0.0, busy) * 100), 1)
+    assert cpu.usage_percent == expected
+
+
 def test_memory_collector_from_proc() -> None:
     ctx = make_context(
         {
