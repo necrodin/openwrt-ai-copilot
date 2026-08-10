@@ -28,7 +28,6 @@ from tests.auth import (
     admin_headers,
     readonly_headers,
     unknown_headers,
-    ws_token_query,
 )
 
 PASSWORD = "super-secret-ssh-password"
@@ -80,6 +79,13 @@ def _ws_client(update: DashboardUpdate | None = None) -> Iterator[TestClient]:
     with TestClient(app) as client:
         app.state.snapshot_service = _FakeFeed(update or _canned_update())
         yield client
+
+
+def _login(client: TestClient, api_key: str) -> str:
+    """Mint a browser session token (the only credential accepted in a URL)."""
+    response = client.post("/api/v1/auth/login", json={"api_key": api_key})
+    assert response.status_code == 200
+    return response.json()["token"]
 
 
 @contextmanager
@@ -235,10 +241,14 @@ def test_websocket_without_read_scope_rejected() -> None:
         pass
 
 
-def test_authenticated_websocket_allowed_via_token_query() -> None:
+def test_authenticated_websocket_allowed_via_session_query() -> None:
+    # Browsers cannot set headers on the WebSocket upgrade, so they pass a
+    # short-lived session token (never a static master key) in the query.
     with (
         _ws_client() as client,
-        client.websocket_connect(f"/api/v1/dashboard/ws?{ws_token_query()}") as websocket,
+        client.websocket_connect(
+            f"/api/v1/dashboard/ws?token={_login(client, TEST_ADMIN_KEY)}"
+        ) as websocket,
     ):
         frame = json.loads(websocket.receive_text())
     assert frame["type"] == "update"

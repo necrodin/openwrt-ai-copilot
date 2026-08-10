@@ -26,7 +26,9 @@ the two properties a permanent static key can never provide.
 Clients authenticate with ``Authorization: Bearer <token>``. WebSocket
 connections authenticate the same way — via the ``Authorization`` header or,
 for browsers that cannot set headers on the WebSocket upgrade, the ``?token=``
-query parameter (the browser session token, never a master key).
+query parameter. Because a URL leaks credentials into history and logs, only a
+short-lived browser session token is ever accepted from the query string (a
+permanent master key is rejected there, and the upgrade is gated on ``Origin``).
 
 Fail-closed: when no key is configured or the presented token is unknown, the
 request is rejected (401). Reads require any valid key; write/management
@@ -244,6 +246,22 @@ async def require_write(
     return principal
 
 
+def _origin_allowed(websocket: WebSocket) -> bool:
+    """Gate WebSocket upgrades on the ``Origin`` header.
+
+    Browsers always send ``Origin`` on a WebSocket upgrade; native clients
+    typically do not. A missing origin is therefore allowed, but a present
+    origin must be in the configured CORS allow-list. This stops a malicious
+    website from opening a socket to a token-bearing URL (e.g. one the victim
+    pasted or that leaked into a referrer). ``CORSMiddleware`` only governs
+    HTTP, so WebSockets need this check independently.
+    """
+    origin = websocket.headers.get("origin")
+    if not origin:
+        return True
+    return "*" in settings.cors_origins or origin in settings.cors_origins
+
+
 def authenticate_websocket(
     websocket: WebSocket,
     *,
@@ -252,14 +270,35 @@ def authenticate_websocket(
     """Validate a WebSocket upgrade before the socket is accepted.
 
     Accepts the bearer token from the ``Authorization`` header (non-browser
-    clients) or the ``?token=`` query parameter (browsers). For browsers the
-    token must be a short-lived session token obtained from ``/auth/login`` —
-    never a static master key. Returns ``True`` only when the caller is
-    authenticated and holds ``required_scope``.
+    clients) or the ``?token=`` query parameter (browsers). Credentials in a
+    URL are exposed to browser history, server logs, and shared links, so the
+    query parameter only ever resolves short-lived, revocable browser session
+    tokens from the session store — a permanent static operator key is never
+    accepted there. The upgrade additionally requires an allowed ``Origin``
+    when present. Returns ``True`` only when the caller is authenticated and
+    holds ``required_scope``.
     """
+    if not _origin_allowed(websocket):
+        return False
     store = getattr(websocket.app.state, "auth_sessions", None)
+
     token = _bearer_token(websocket.headers)
-    if token is None:
-        token = websocket.query_params.get("token")
-    principal = validate_token(token, store=store)
+    if token is not None:
+        # Header credentials are kept out of URLs, so non-browser clients may
+        # present either a session token or a static operator key.
+        principal = validate_token(token, store=store)
+    else:
+        # URL-visible credentials are bounded to short-lived sessions: a query
+        # token is accepted only if it is a live session in this store.
+        query_token = websocket.query_params.get("token")
+        if not query_token or store is None:
+            return False
+        record = store.resolve(query_token)
+        if record is None:
+            return False
+        principal = AuthPrincipal(
+            key_id=record.role,
+            scopes=record.scopes,
+            subject=_subject(query_token, session=True),
+        )
     return principal is not None and principal.has_scope(required_scope)
