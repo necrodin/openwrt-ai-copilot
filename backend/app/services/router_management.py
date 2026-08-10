@@ -3258,6 +3258,7 @@ class RouterManagementService:
 
     _HOSTNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.\-]{1,63}$")
     _TIMEZONE_PATTERN = re.compile(r"^[A-Za-z0-9_+./\-]{1,64}$")
+    _LANGUAGE_PATTERN = re.compile(r"^[A-Za-z0-9_@+./\-]{1,32}$")
 
     def system_set_config(
         self,
@@ -3267,24 +3268,39 @@ class RouterManagementService:
         language: str | None,
         notes: str | None,
     ) -> dict[str, Any]:
-        """Apply hostname/timezone/language/notes via ``uci`` and commit."""
+        """Apply hostname/timezone/language/notes via ``uci`` and commit.
+
+        Every value is allow-listed (hostname/timezone/language) or shell-quoted
+        (notes), so no user-controlled string can escape the ``uci set``
+        argument and execute on the router.
+        """
         if hostname is not None and not self._HOSTNAME_PATTERN.match(hostname):
             raise RouterManagementError("Invalid hostname.")
         if timezone is not None and not self._TIMEZONE_PATTERN.match(timezone):
             raise RouterManagementError("Invalid timezone.")
+        if language is not None and not self._LANGUAGE_PATTERN.match(language):
+            raise RouterManagementError("Invalid language.")
 
         commands: list[str] = []
         hostname_value: str | None = None
         if hostname is not None:
-            commands.append(f"uci set system.@system[0].hostname='{hostname}'")
+            commands.append(
+                f"uci set system.@system[0].hostname={self._sh_quote(hostname)}"
+            )
             hostname_value = hostname
         if timezone is not None:
-            commands.append(f"uci set system.@system[0].timezone='{timezone}'")
+            commands.append(
+                f"uci set system.@system[0].timezone={self._sh_quote(timezone)}"
+            )
         if language is not None:
-            commands.append(f"uci set system.@system[0].language='{language}'")
+            commands.append(
+                f"uci set system.@system[0].language={self._sh_quote(language)}"
+            )
         if notes is not None:
             if notes:
-                commands.append(f"uci set system.@system[0].notes='{notes}'")
+                commands.append(
+                    f"uci set system.@system[0].notes={self._sh_quote(notes)}"
+                )
             else:
                 commands.append("uci delete system.@system[0].notes")
 
@@ -3292,7 +3308,9 @@ class RouterManagementService:
             return {"ok": True, "message": "No changes provided.", "detail": None}
 
         if hostname_value is not None:
-            commands.append(f"echo '{hostname_value}' > /proc/sys/kernel/hostname")
+            commands.append(
+                f"echo {self._sh_quote(hostname_value)} > /proc/sys/kernel/hostname"
+            )
         commands.append("uci commit system")
         commands.append("/etc/init.d/sysntpd restart")
 
