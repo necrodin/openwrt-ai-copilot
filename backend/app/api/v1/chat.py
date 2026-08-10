@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
+from app.core.auth import AuthPrincipal, require_read
 from app.core.config import settings
 from app.db.chat_store import ChatStore
 from app.schemas.chat import ChatRequestBody
@@ -63,8 +64,12 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _history_turns(store: ChatStore, session_id: str) -> list[tuple[str, str]]:
-    records = store.get_messages(session_id)
+def _history_turns(
+    store: ChatStore,
+    session_id: str,
+    owner: str | None,
+) -> list[tuple[str, str]]:
+    records = store.get_messages(session_id, owner=owner)
     return [(record.role, record.content) for record in records]
 
 
@@ -74,6 +79,7 @@ def _store_turn(
     role: str,
     content: str,
     *,
+    owner: str | None,
     provider: str | None = None,
     model: str | None = None,
 ) -> None:
@@ -83,6 +89,7 @@ def _store_turn(
         content=content,
         provider=provider,
         model=model,
+        owner=owner,
     )
 
 
@@ -99,11 +106,16 @@ def _citations_json(citations: list[Any]) -> list[dict]:
 
 
 @router.post("/chat")
-async def chat(request: Request, body: ChatRequestBody) -> Response:
+async def chat(
+    request: Request,
+    body: ChatRequestBody,
+    principal: Annotated[AuthPrincipal, Depends(require_read)],
+) -> Response:
     """Non-streaming chat. Returns the full assistant reply."""
     service = _chat_service(request)
     store = request.app.state.chat_store
     rag_service = _rag_service(request)
+    owner = principal.subject
     try:
         provider = service.provider_for(_provider_preference(body, rag_service))
     except NoChatProviderError as exc:
@@ -113,12 +125,12 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
             media_type="application/json",
         )
 
-    history = _history_turns(store, body.session_id)
-    _store_turn(store, body.session_id, "user", body.message)
+    history = _history_turns(store, body.session_id, owner)
+    _store_turn(store, body.session_id, "user", body.message, owner=owner)
 
     if rag_service is not None:
-        rag_service.seed_history(body.session_id, history)
-        engine = rag_service.engine_for(body.session_id, provider)
+        rag_service.seed_history(owner, body.session_id, history)
+        engine = rag_service.engine_for(owner, body.session_id, provider)
         try:
             response = await engine.answer(
                 body.message,
@@ -137,6 +149,7 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
             body.session_id,
             "assistant",
             response.answer,
+            owner=owner,
             provider=provider.name,
             model=response.model,
         )
@@ -187,6 +200,7 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
         body.session_id,
         "assistant",
         reply,
+        owner=owner,
         provider=provider.name,
         model=response.model,
     )
@@ -208,26 +222,31 @@ async def chat(request: Request, body: ChatRequestBody) -> Response:
 
 
 @router.post("/chat/stream")
-async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingResponse:
+async def chat_stream(
+    request: Request,
+    body: ChatRequestBody,
+    principal: Annotated[AuthPrincipal, Depends(require_read)],
+) -> StreamingResponse:
     """Streaming chat as Server-Sent Events."""
 
     async def generator() -> AsyncIterator[str]:
         service = _chat_service(request)
         store = request.app.state.chat_store
         rag_service = _rag_service(request)
+        owner = principal.subject
         try:
             provider = service.provider_for(_provider_preference(body, rag_service))
         except NoChatProviderError as exc:
             yield _sse({"type": "error", "message": str(exc)})
             return
 
-        history = _history_turns(store, body.session_id)
-        _store_turn(store, body.session_id, "user", body.message)
+        history = _history_turns(store, body.session_id, owner)
+        _store_turn(store, body.session_id, "user", body.message, owner=owner)
         yield _sse({"type": "session", "session_id": body.session_id})
 
         if rag_service is not None:
-            rag_service.seed_history(body.session_id, history)
-            engine = rag_service.engine_for(body.session_id, provider)
+            rag_service.seed_history(owner, body.session_id, history)
+            engine = rag_service.engine_for(owner, body.session_id, provider)
             reply_parts: list[str] = []
             streamed_model = ""
             try:
@@ -264,6 +283,7 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
                 body.session_id,
                 "assistant",
                 reply,
+                owner=owner,
                 provider=provider.name,
                 model=streamed_model or body.model or provider.config.model or "default",
             )
@@ -308,6 +328,7 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
             body.session_id,
             "assistant",
             reply,
+            owner=owner,
             provider=provider.name,
             model=body.model or provider.config.model or "default",
         )
@@ -333,10 +354,14 @@ async def chat_stream(request: Request, body: ChatRequestBody) -> StreamingRespo
 
 
 @router.get("/chat/history")
-def chat_history(request: Request, session_id: str = "default") -> dict:
+def chat_history(
+    request: Request,
+    principal: Annotated[AuthPrincipal, Depends(require_read)],
+    session_id: str = "default",
+) -> dict:
     """Return the stored turns for a session (newest first list order: chronological)."""
     store: ChatStore = request.app.state.chat_store
-    records = store.get_messages(session_id)
+    records = store.get_messages(session_id, owner=principal.subject)
     return {
         "session_id": session_id,
         "service": settings.app_name,
@@ -354,7 +379,10 @@ def chat_history(request: Request, session_id: str = "default") -> dict:
 
 
 @router.get("/chat/sessions")
-def chat_sessions(request: Request) -> dict:
-    """List known chat sessions, newest first."""
+def chat_sessions(
+    request: Request,
+    principal: Annotated[AuthPrincipal, Depends(require_read)],
+) -> dict:
+    """List known chat sessions for the caller, newest first."""
     store: ChatStore = request.app.state.chat_store
-    return {"sessions": store.list_sessions()}
+    return {"sessions": store.list_sessions(owner=principal.subject)}

@@ -9,7 +9,13 @@ from database.session import SessionLocal
 
 
 class ChatStore:
-    """Append-only store of chat turns, grouped by session id."""
+    """Append-only store of chat turns, grouped by session id and owner.
+
+    Every turn is namespaced by ``owner`` (the authenticated principal). Reads
+    and the session listing filter on the caller's owner, so one principal can
+    never see, enumerate, or write into another principal's conversation. A
+    ``None`` owner matches only legacy rows, which are never exposed.
+    """
 
     def add_message(
         self,
@@ -19,6 +25,7 @@ class ChatStore:
         content: str,
         provider: str | None = None,
         model: str | None = None,
+        owner: str | None = None,
     ) -> ChatMessageRecord:
         with SessionLocal() as session:
             record = ChatMessageRecord(
@@ -27,23 +34,32 @@ class ChatStore:
                 content=content,
                 provider=provider,
                 model=model,
+                owner=owner,
             )
             session.add(record)
             session.commit()
             session.refresh(record)
             return record
 
-    def get_messages(self, session_id: str, *, limit: int = 50) -> list[ChatMessageRecord]:
+    def get_messages(
+        self,
+        session_id: str,
+        *,
+        limit: int = 50,
+        owner: str | None = None,
+    ) -> list[ChatMessageRecord]:
         with SessionLocal() as session:
+            stmt = select(ChatMessageRecord).where(
+                ChatMessageRecord.session_id == session_id,
+                ChatMessageRecord.owner == owner,
+            )
             stmt = (
-                select(ChatMessageRecord)
-                .where(ChatMessageRecord.session_id == session_id)
-                .order_by(ChatMessageRecord.created_at.asc(), ChatMessageRecord.id.asc())
+                stmt.order_by(ChatMessageRecord.created_at.asc(), ChatMessageRecord.id.asc())
                 .limit(limit)
             )
             return list(session.scalars(stmt).all())
 
-    def list_sessions(self, *, limit: int = 50) -> list[dict]:
+    def list_sessions(self, *, limit: int = 50, owner: str | None = None) -> list[dict]:
         with SessionLocal() as session:
             stmt = (
                 select(
@@ -51,6 +67,7 @@ class ChatStore:
                     func.max(ChatMessageRecord.created_at).label("updated_at"),
                     func.count(ChatMessageRecord.id).label("message_count"),
                 )
+                .where(ChatMessageRecord.owner == owner)
                 .group_by(ChatMessageRecord.session_id)
                 .order_by(func.max(ChatMessageRecord.created_at).desc())
                 .limit(limit)

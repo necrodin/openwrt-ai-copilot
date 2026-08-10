@@ -57,7 +57,7 @@ class RAGService:
         self._retriever = retriever
         self._reranker = build_reranker(manager, configuration)
         self._cache = InMemoryContextCache(CacheConfig(enabled=configuration.use_cache))
-        self._retrieval_engines: dict[str, RetrievalEngine] = {}
+        self._retrieval_engines: dict[tuple[str, str], RetrievalEngine] = {}
 
     @classmethod
     async def create(
@@ -106,8 +106,15 @@ class RAGService:
     # Per-conversation engines                                           #
     # ------------------------------------------------------------------ #
 
-    def _retrieval_engine(self, session_id: str) -> RetrievalEngine:
-        engine = self._retrieval_engines.get(session_id)
+    def _retrieval_engine(self, subject: str, session_id: str) -> RetrievalEngine:
+        """The retrieval engine for one ``(subject, session_id)`` conversation.
+
+        Engines (with their conversation memory) are namespaced by the
+        authenticated principal, so two users never share RAG memory even when
+        they happen to submit the same client-visible ``session_id``.
+        """
+        key = (subject, session_id)
+        engine = self._retrieval_engines.get(key)
         if engine is None:
             engine = RetrievalEngine(
                 self._retriever,
@@ -116,26 +123,27 @@ class RAGService:
                 reranker=self._reranker,
                 config=build_retrieval_config(self.config),
             )
-            self._retrieval_engines[session_id] = engine
+            self._retrieval_engines[key] = engine
         return engine
 
-    def engine_for(self, session_id: str, provider) -> RAGEngine:
-        """A RAG engine bound to one conversation and one chat provider."""
+    def engine_for(self, subject: str, session_id: str, provider) -> RAGEngine:
+        """A RAG engine bound to one conversation, one principal, one provider."""
         return RAGEngine(
             self._retriever,
             configuration=self.config,
-            retrieval_engine=self._retrieval_engine(session_id),
+            retrieval_engine=self._retrieval_engine(subject, session_id),
             reranker=self._reranker,
             provider=provider,
         )
 
-    def seed_history(self, session_id: str, turns: list[tuple[str, str]]) -> None:
+    def seed_history(self, subject: str, session_id: str, turns: list[tuple[str, str]]) -> None:
         """Replay persisted turns into the session's memory when it is empty.
 
         Only seeds an uninitialised conversation, so restarting the backend does
-        not lose the durable SQLite history for a session.
+        not lose the durable SQLite history for a session. Memory is namespaced
+        by ``subject`` so a user can never inherit another user's context.
         """
-        engine = self._retrieval_engine(session_id)
+        engine = self._retrieval_engine(subject, session_id)
         memory = engine.memory
         if memory is None or memory.state(session_id) is not None:
             return

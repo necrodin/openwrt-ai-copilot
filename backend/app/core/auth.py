@@ -35,6 +35,7 @@ actions additionally require ``devices.write``.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import secrets
 import threading
@@ -58,13 +59,22 @@ ADMIN_SCOPES = frozenset(
 
 
 class AuthPrincipal:
-    """Authenticated identity with its granted scopes."""
+    """Authenticated identity with its granted scopes.
 
-    __slots__ = ("key_id", "scopes")
+    ``subject`` is a stable, opaque identity derived from the presented
+    credential (one-way hash of the browser session token or static API key).
+    Two distinct tokens/keys always yield distinct subjects, and the same
+    credential always yields the same subject. It lets downstream services
+    (chat history, RAG conversation memory) namespace per-principal state
+    without ever exposing the raw token.
+    """
 
-    def __init__(self, *, key_id: str, scopes: frozenset[str]) -> None:
+    __slots__ = ("key_id", "scopes", "subject")
+
+    def __init__(self, *, key_id: str, scopes: frozenset[str], subject: str | None = None) -> None:
         self.key_id = key_id
         self.scopes = scopes
+        self.subject = subject
 
     def has_scope(self, scope: str) -> bool:
         return scope in self.scopes
@@ -146,6 +156,13 @@ class SessionStore:
             del self._sessions[tok]
 
 
+def _subject(token: str, *, session: bool) -> str:
+    """Stable one-way identity for a credential (never the raw token)."""
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    prefix = "session" if session else "key"
+    return f"{prefix}:{digest}"
+
+
 def validate_token(
     token: str | None,
     *,
@@ -163,11 +180,19 @@ def validate_token(
     if store is not None:
         record = store.resolve(token)
         if record is not None:
-            return AuthPrincipal(key_id=record.role, scopes=record.scopes)
+            return AuthPrincipal(
+                key_id=record.role,
+                scopes=record.scopes,
+                subject=_subject(token, session=True),
+            )
     for key, scopes in _credentials().items():
         if hmac.compare_digest(key, token):
             key_id = "admin" if SCOPE_DEVICES_WRITE in scopes else "readonly"
-            return AuthPrincipal(key_id=key_id, scopes=scopes)
+            return AuthPrincipal(
+                key_id=key_id,
+                scopes=scopes,
+                subject=_subject(token, session=False),
+            )
     return None
 
 

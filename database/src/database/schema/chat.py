@@ -17,10 +17,16 @@ from database.schema.base import Base
 
 class ChatMessageRecord(Base):
     __tablename__ = "chat_messages"
-    __table_args__ = (Index("ix_chat_messages_session_created", "session_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_chat_messages_owner_session_created", "owner", "session_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Stable per-principal namespace: chat state owned by different authenticated
+    # principals never shares a session. NULL rows predate owner scoping and are
+    # intentionally invisible to every principal (fail-closed).
+    owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     provider: Mapped[str | None] = mapped_column(String(128), nullable=True)
