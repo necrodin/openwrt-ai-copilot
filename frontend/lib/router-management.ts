@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/auth";
 
 export type PackageManager = "apk" | "opkg" | "unknown";
 
@@ -10,6 +11,8 @@ export type ManagementPackage = {
   architecture: string | null;
   description: string | null;
   depends: string[];
+  source?: string | null;
+  license?: string | null;
 };
 
 export type PackageInventory = {
@@ -45,6 +48,11 @@ export type PackageSearchResponse = {
   manager: PackageManager;
   count: number;
   results: PackageSearchResult[];
+  repository?: {
+    available: boolean;
+    reason?: string;
+    detail?: string[];
+  } | null;
 };
 
 export type PackageDetails = {
@@ -119,7 +127,11 @@ export type JobRequest = {
 };
 
 async function request<T>(path: string, init?: RequestInit, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, signal });
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: authHeaders(init?.headers),
+    signal,
+  });
   const body = (await response.json().catch(() => null)) as
     | { detail?: string }
     | T
@@ -401,7 +413,9 @@ export function killProcess(pid: number, signal?: AbortSignal): Promise<{ ok: bo
 }
 
 export async function downloadJobArtifact(jobId: string, filename?: string): Promise<void> {
-  const response = await fetch(jobArtifactUrl(jobId));
+  const response = await fetch(jobArtifactUrl(jobId), {
+    headers: authHeaders(),
+  });
   if (!response.ok) {
     throw new Error(`Download failed with status ${response.status}`);
   }

@@ -17,6 +17,9 @@ services:
       SECRET_KEY: ${SECRET_KEY:-change-me}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       BACKEND_CORS_ORIGINS: '["http://localhost:3000"]'
+      AUTH_ADMIN_API_KEY: ${AUTH_ADMIN_API_KEY:-}
+      AUTH_READONLY_API_KEY: ${AUTH_READONLY_API_KEY:-}
+      AUTH_SESSION_TTL: ${AUTH_SESSION_TTL:-28800}
     volumes:
       - data:/data
     ports:

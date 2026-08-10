@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/auth";
 
 export type AuthType = "password" | "key";
 
@@ -89,7 +90,7 @@ export type SaveResult = SavedRouter & { message: string };
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -99,7 +100,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`);
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: authHeaders(),
+  });
   if (!res.ok) {
     throw new Error(`Request failed with status ${res.status}`);
   }

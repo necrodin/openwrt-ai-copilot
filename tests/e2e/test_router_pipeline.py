@@ -45,6 +45,7 @@ from router_agent.model import (
     WifiInfo,
     WifiRadio,
 )
+from tests.auth import admin_headers
 from tests.unit.providers_helpers import make_provider
 from vectorstore.models import VectorDocument, VectorMetadata
 
@@ -289,7 +290,7 @@ def _register(
 @contextmanager
 def _chat_client(seen: dict, update: DashboardUpdate | None, *, tool: RouterTool | None = None):
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         snapshot_service = _FakeSnapshotService(update)
         router_manager = RouterManager()
         _register(router_manager, snapshot_service, tool=tool)
@@ -306,7 +307,7 @@ def _chat_client(seen: dict, update: DashboardUpdate | None, *, tool: RouterTool
 @contextmanager
 def _status_client(update: DashboardUpdate | None):
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         snapshot_service = _FakeSnapshotService(update)
         router_manager = RouterManager()
         _register(router_manager, snapshot_service)
@@ -745,7 +746,7 @@ async def test_rag_chat_works_alongside_router_pipeline(tmp_path) -> None:
     )
 
     app = create_app()
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     client.__enter__()
     try:
         snapshot_service = _FakeSnapshotService(update)

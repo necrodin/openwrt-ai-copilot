@@ -4,6 +4,7 @@ import type {
   Source,
 } from "@/lib/dashboard";
 import { API_BASE_URL } from "@/lib/api";
+import { wsAuthQuery } from "@/lib/auth";
 
 export type ConnectionStatus =
   | "connecting"
@@ -35,11 +36,15 @@ export function dashboardSocketUrl(): string {
   const wsPath = "/dashboard/ws";
   const protocol = () =>
     window.location.protocol === "https:" ? "wss" : "ws";
+  let base: string;
   if (API_BASE_URL.startsWith("http")) {
     const url = new URL(API_BASE_URL);
-    return `${protocol()}://${url.host}${url.pathname.replace(/\/$/, "")}${wsPath}`;
+    base = `${protocol()}://${url.host}${url.pathname.replace(/\/$/, "")}${wsPath}`;
+  } else {
+    base = `${protocol()}://${window.location.host}${API_BASE_URL}${wsPath}`;
   }
-  return `${protocol()}://${window.location.host}${API_BASE_URL}${wsPath}`;
+  const query = wsAuthQuery();
+  return query ? `${base}?${query}` : base;
 }
 
 export function formatBytes(bytes: number | null | undefined): string {

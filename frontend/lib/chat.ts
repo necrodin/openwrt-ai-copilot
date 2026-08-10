@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/auth";
 
 export type ChatRole = "user" | "assistant" | "system";
 
@@ -70,7 +71,7 @@ export async function streamChatMessage(
 ): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
       session_id: options.session_id,
       message: options.message,
@@ -154,7 +155,7 @@ export async function fetchChatHistory(
 ): Promise<ChatTurn[]> {
   const url = new URL(`${API_BASE_URL}/chat/history`, window.location.origin);
   url.searchParams.set("session_id", sessionId);
-  const res = await fetch(url, { signal });
+  const res = await fetch(url, { headers: authHeaders(), signal });
   const body = (await jsonOrThrow(res)) as {
     messages: Array<{
       role: ChatRole;
@@ -171,7 +172,10 @@ export async function fetchChatHistory(
 export async function fetchChatSessions(
   signal?: AbortSignal,
 ): Promise<ChatSessionSummary[]> {
-  const res = await fetch(`${API_BASE_URL}/chat/sessions`, { signal });
+  const res = await fetch(`${API_BASE_URL}/chat/sessions`, {
+    headers: authHeaders(),
+    signal,
+  });
   const body = (await jsonOrThrow(res)) as { sessions: ChatSessionSummary[] };
   return body.sessions;
 }

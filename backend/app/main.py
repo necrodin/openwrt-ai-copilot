@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.core.auth import SessionStore
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.db.chat_store import store as chat_store
@@ -92,6 +93,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Server-side browser sessions (login/logout). Created here, outside the
+    # lifespan, so the auth boundary works even for apps started without the
+    # full service lifecycle (e.g. lightweight test clients).
+    application.state.auth_sessions = SessionStore(settings.auth_session_ttl)
 
     application.include_router(api_router, prefix=settings.api_prefix)
 

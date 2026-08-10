@@ -18,6 +18,7 @@ from providers.factory import ProviderManager
 from providers.nim import NIMProvider
 from providers.openai import OpenAIProvider
 from rag.ai import RAGConfiguration
+from tests.auth import admin_headers
 from tests.unit.providers_helpers import make_provider
 from vectorstore.models import VectorDocument, VectorMetadata
 
@@ -160,7 +161,7 @@ async def _service(
 
 def _client(service) -> TestClient:
     app = create_app()
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     client.__enter__()
     client.app.state.chat_service = ChatService(service._manager, lambda: None)
     client.app.state.rag_service = service
@@ -281,5 +282,5 @@ async def test_rag_chat_memory_persists_across_turns(tmp_path) -> None:
 def test_rag_disabled_by_default() -> None:
     """Without a rag.yaml the app boots with RAG chat disabled."""
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         assert client.app.state.rag_service is None

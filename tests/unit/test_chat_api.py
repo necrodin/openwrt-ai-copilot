@@ -23,6 +23,7 @@ from app.services.router_tool import RouterTool
 from app.services.router_tool_executor import RouterToolResult
 from providers.factory import ProviderManager
 from providers.openai import OpenAIProvider
+from tests.auth import admin_headers
 from tests.unit.providers_helpers import make_provider
 
 SNAPSHOT = build_simulated_snapshot()
@@ -93,7 +94,7 @@ def _client(
     snapshot_service=None,
 ) -> TestClient:
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         service = ChatService(manager, lambda: snapshot)
         if snapshot_service is not None:
             service = ChatService(

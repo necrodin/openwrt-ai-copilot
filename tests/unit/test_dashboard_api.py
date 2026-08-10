@@ -16,6 +16,7 @@ from app.schemas.dashboard import DashboardUpdate
 from app.services.demo_source import build_simulated_snapshot
 from app.services.snapshot_service import SnapshotService
 from router_agent.model import DeviceSnapshot
+from tests.auth import admin_headers, ws_token_query
 
 
 def _canned_update(
@@ -57,7 +58,7 @@ class FakeSnapshotService:
 def client_with_service(service: FakeSnapshotService) -> Iterator[TestClient]:
     """TestClient whose snapshot service is replaced after lifespan starts."""
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         app.state.snapshot_service = service
         yield client
 
@@ -127,7 +128,7 @@ def test_dashboard_ws_streams_initial_and_queued_frames() -> None:
     service.queue.put_nowait(_canned_update(sequence=8))
     with (
         client_with_service(service) as client,
-        client.websocket_connect("/api/v1/dashboard/ws") as websocket,
+        client.websocket_connect(f"/api/v1/dashboard/ws?{ws_token_query()}") as websocket,
     ):
         first = json.loads(websocket.receive_text())
         second = json.loads(websocket.receive_text())

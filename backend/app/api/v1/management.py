@@ -20,10 +20,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from app.core.auth import require_write
 from app.services.router_management import (
     ManagementJob,
     RouterManagementError,
@@ -93,7 +94,7 @@ def packages(request: Request, refresh: bool = False) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post("/router/management/packages/refresh")
+@router.post("/router/management/packages/refresh", dependencies=[Depends(require_write)])
 def refresh_packages(request: Request) -> dict:
     """Force a fresh package inventory (bypassing the short TTL cache)."""
     try:
@@ -175,31 +176,31 @@ def _run_service_action(request: Request, service: str, action: str) -> dict:
     return _job_dict(job)
 
 
-@router.post("/router/management/services/{service}/start")
+@router.post("/router/management/services/{service}/start", dependencies=[Depends(require_write)])
 def service_start(request: Request, service: str) -> dict:
     """Start a service and return the tracked job."""
     return _run_service_action(request, service, "start")
 
 
-@router.post("/router/management/services/{service}/stop")
+@router.post("/router/management/services/{service}/stop", dependencies=[Depends(require_write)])
 def service_stop(request: Request, service: str) -> dict:
     """Stop a running service and return the tracked job."""
     return _run_service_action(request, service, "stop")
 
 
-@router.post("/router/management/services/{service}/restart")
+@router.post("/router/management/services/{service}/restart", dependencies=[Depends(require_write)])
 def service_restart(request: Request, service: str) -> dict:
     """Restart a service and return the tracked job."""
     return _run_service_action(request, service, "restart")
 
 
-@router.post("/router/management/services/{service}/enable")
+@router.post("/router/management/services/{service}/enable", dependencies=[Depends(require_write)])
 def service_enable(request: Request, service: str) -> dict:
     """Mark a service to start at boot and return the tracked job."""
     return _run_service_action(request, service, "enable")
 
 
-@router.post("/router/management/services/{service}/disable")
+@router.post("/router/management/services/{service}/disable", dependencies=[Depends(require_write)])
 def service_disable(request: Request, service: str) -> dict:
     """Prevent a service from starting at boot and return the tracked job."""
     return _run_service_action(request, service, "disable")
@@ -223,7 +224,7 @@ def processes(request: Request) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post("/router/management/processes/{pid}/kill")
+@router.post("/router/management/processes/{pid}/kill", dependencies=[Depends(require_write)])
 def kill_process(request: Request, pid: int) -> dict:
     """Send SIGTERM to a running process."""
     try:
@@ -241,7 +242,7 @@ def system_info(request: Request) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.post("/router/management/jobs")
+@router.post("/router/management/jobs", dependencies=[Depends(require_write)])
 async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
     """Start a management job and return it for progress polling."""
     service = _service(request)
@@ -526,7 +527,7 @@ def get_job(request: Request, job_id: str) -> dict:
     return _job_dict(job)
 
 
-@router.post("/router/management/jobs/{job_id}/confirm")
+@router.post("/router/management/jobs/{job_id}/confirm", dependencies=[Depends(require_write)])
 async def confirm_job(request: Request, job_id: str) -> dict:
     """Confirm and execute a staged restore job."""
     service = _service(request)
@@ -539,7 +540,7 @@ async def confirm_job(request: Request, job_id: str) -> dict:
     return _job_dict(job)
 
 
-@router.get("/router/management/jobs/{job_id}/artifact")
+@router.get("/router/management/jobs/{job_id}/artifact", dependencies=[Depends(require_write)])
 def download_artifact(request: Request, job_id: str) -> Response:
     """Download the artifact (backup or diagnostic bundle) of a finished job."""
     job = _service(request).job_store.get(job_id)

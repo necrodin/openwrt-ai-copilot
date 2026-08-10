@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.schemas.dashboard import DashboardUpdate
 from app.services.router_snapshot import RouterSnapshot
+from tests.auth import admin_headers
 
 # Legacy connection-state fields that must always be present in the response.
 LEGACY_FIELDS = (
@@ -80,7 +81,7 @@ def _healthy_snapshot() -> RouterSnapshot:
 @contextmanager
 def _client(snapshot: RouterSnapshot | None, *, connected: bool = True, error: str | None = None):
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         router = (
             None
             if snapshot is None

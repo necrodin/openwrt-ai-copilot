@@ -15,6 +15,7 @@ from app.main import create_app
 from app.schemas.dashboard import DashboardUpdate
 from app.services.demo_source import build_simulated_snapshot
 from app.services.router_context import build_context
+from tests.auth import admin_headers
 
 
 def _canned_update(
@@ -55,7 +56,7 @@ class FakeSnapshotService:
 @contextmanager
 def client_with_service(service: FakeSnapshotService) -> Iterator[TestClient]:
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers=admin_headers()) as client:
         app.state.snapshot_service = service
         yield client
 

@@ -12,15 +12,16 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 
+from app.core.auth import authenticate_websocket, require_read
 from app.core.config import settings
 from app.services.snapshot_service import SnapshotService
 
 router = APIRouter(tags=["dashboard"])
 
 
-@router.get("/dashboard/latest")
+@router.get("/dashboard/latest", dependencies=[Depends(require_read)])
 def dashboard_latest(request: Request) -> dict:
     """Return the latest dashboard update, or a placeholder when empty."""
     service: SnapshotService = request.app.state.snapshot_service
@@ -41,7 +42,15 @@ def dashboard_latest(request: Request) -> dict:
 
 @router.websocket("/dashboard/ws")
 async def dashboard_ws(websocket: WebSocket) -> None:
-    """Stream dashboard updates to the connected client."""
+    """Stream dashboard updates to the connected client.
+
+    The connection is authenticated before it is accepted (bearer header or
+    ``?token=`` query parameter); unauthenticated upgrades are closed with an
+    application close code and never receive router data.
+    """
+    if not authenticate_websocket(websocket):
+        await websocket.close(code=4401)
+        return
     service: SnapshotService = websocket.app.state.snapshot_service
     await websocket.accept()
     queue = service.subscribe()

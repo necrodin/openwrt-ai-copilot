@@ -10,6 +10,7 @@ import { SessionSidebar } from "@/components/chat/session-sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useChat } from "@/hooks/use-chat";
+import { authHeaders } from "@/lib/auth";
 
 interface RouterSystem {
   hostname?: string | null;
@@ -272,7 +273,9 @@ export default function ChatPage() {
 
   const loadRouterStatus = useCallback(async () => {
     try {
-      const response = await fetch("/api/v1/router/status");
+      const response = await fetch("/api/v1/router/status", {
+        headers: authHeaders(),
+      });
       if (!response.ok) {
         throw new Error(`Router status request failed (${response.status})`);
       }

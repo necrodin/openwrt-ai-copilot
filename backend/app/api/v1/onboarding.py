@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.core.auth import require_write
 from app.db.router_store import store as router_store
 from app.schemas.onboarding import RouterSaveRequest, RouterTestRequest
 from app.services import onboarding as onboarding_service
@@ -58,7 +59,7 @@ async def detect(payload: RouterTestRequest) -> dict:
         return {"ok": False, "error": onboarding_service.friendly_error(exc)}
 
 
-@router.post("/router/save")
+@router.post("/router/save", dependencies=[Depends(require_write)])
 async def save(request: Request, payload: RouterSaveRequest) -> dict:
     """Persist the router and switch the live snapshot feed to it."""
     record = router_store.save(
@@ -94,7 +95,7 @@ async def list_connections() -> dict:
     return {"routers": [router_store.to_public_dict(record) for record in records]}
 
 
-@router.delete("/router/connections/{router_id}")
+@router.delete("/router/connections/{router_id}", dependencies=[Depends(require_write)])
 async def delete_connection(router_id: int) -> dict:
     """Remove a saved router connection."""
     records = router_store.get_all()

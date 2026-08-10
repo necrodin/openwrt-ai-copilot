@@ -12,6 +12,7 @@ from app.main import create_app
 from app.services.provider_manager import get_provider_manager
 from providers.factory import ProviderManager
 from providers.openai import OpenAIProvider
+from tests.auth import admin_headers
 from tests.unit.providers_helpers import make_provider
 
 MODELS = {"data": [{"id": "gpt-4o-mini"}, {"id": "text-embedding-3-small"}]}
@@ -43,7 +44,7 @@ def _manager() -> ProviderManager:
 def api_client() -> TestClient:
     app = create_app()
     app.dependency_overrides[get_provider_manager] = _manager
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=admin_headers()) as test_client:
         yield test_client
 
 
@@ -101,6 +102,6 @@ def test_provider_models_error_maps_to_502(api_client: TestClient) -> None:
         {"broken": make_provider(OpenAIProvider, lambda _: httpx.Response(503))}
     )
     app.dependency_overrides[get_provider_manager] = lambda: manager
-    with TestClient(app) as test_client:
+    with TestClient(app, headers=admin_headers()) as test_client:
         response = test_client.get("/api/v1/providers/broken/models")
     assert response.status_code == 502

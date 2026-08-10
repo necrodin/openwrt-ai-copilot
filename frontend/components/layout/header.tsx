@@ -2,6 +2,7 @@
 
 import { Activity, Menu } from "lucide-react";
 
+import { LogoutButton } from "@/components/auth/logout-button";
 import { HealthStatus } from "@/components/health-status";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 
@@ -31,6 +32,7 @@ export function Header({ onMenuClick }: HeaderProps) {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <HealthStatus />
+        <LogoutButton />
         <ThemeToggle />
       </div>
     </header>

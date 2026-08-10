@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/auth";
 import type { DashboardUpdate } from "@/lib/dashboard";
 
 export type RouterSystem = {
@@ -79,7 +80,10 @@ export type RouterStatusResponse = {
 export async function fetchDashboardLatest(
   signal?: AbortSignal,
 ): Promise<DashboardUpdate> {
-  const res = await fetch(`${API_BASE_URL}/dashboard/latest`, { signal });
+  const res = await fetch(`${API_BASE_URL}/dashboard/latest`, {
+    headers: authHeaders(),
+    signal,
+  });
   if (!res.ok) {
     throw new Error(`Dashboard request failed with status ${res.status}`);
   }
@@ -93,7 +97,10 @@ export async function fetchDashboardLatest(
 export async function fetchRouterStatus(
   signal?: AbortSignal,
 ): Promise<RouterStatusResponse> {
-  const res = await fetch(`${API_BASE_URL}/router/status`, { signal });
+  const res = await fetch(`${API_BASE_URL}/router/status`, {
+    headers: authHeaders(),
+    signal,
+  });
   if (!res.ok) {
     throw new Error(`Router status request failed with status ${res.status}`);
   }
