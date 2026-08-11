@@ -57,9 +57,13 @@ class SSHConfig:
     retry_count: int = 2
     #: Delay between retries in seconds.
     retry_delay: float = 0.5
-    #: "auto" (trust-on-first-use), "system" (system known_hosts), "reject".
+    #: "auto" (persisted trust-on-first-use), "system" (system known_hosts),
+    #: "reject" (strict, reject unknown hosts). Host keys are always verified;
+    #: "auto" records a first-seen key and rejects any later change.
     host_key_policy: str = "auto"
-    #: Path to a known_hosts file; strict verification is used when set.
+    #: Path to an OpenSSH known_hosts file; strict verification is used when set
+    #: (unknown hosts are rejected). When unset and the policy is "auto"/"reject"
+    #: the persisted store from :func:`default_known_hosts_path` is used.
     known_hosts: Path | None = None
     #: Backend: "asyncssh" | "paramiko" | "mock" | None (auto = asyncssh when
     #: installed, else paramiko).

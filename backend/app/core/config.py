@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     # Sessions are held in a server-side store so logout can revoke them.
     auth_session_ttl: int = 28_800  # 8 hours
 
+    # Fernet key used to encrypt router credentials (password / private key) at
+    # rest. Generate one with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # When unset, SECRET_KEY is used as a derivation source only if it differs
+    # from the weak placeholder below. With neither configured, saving router
+    # credentials is refused (and startup fails if any are already stored).
+    auth_vault_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

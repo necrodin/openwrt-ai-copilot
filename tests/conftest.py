@@ -15,6 +15,8 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DIR}/test.db"
 os.environ["SECRET_KEY"] = "test-only-secret"
 os.environ["AUTH_ADMIN_API_KEY"] = "test-admin-key"
 os.environ["AUTH_READONLY_API_KEY"] = "test-readonly-key"
+# Keep the persisted SSH host-key store out of the working tree during tests.
+os.environ["OPENWRT_AI_KNOWN_HOSTS"] = f"{_TMP_DIR}/known_hosts"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

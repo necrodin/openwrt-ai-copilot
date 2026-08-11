@@ -1,10 +1,18 @@
-"""Router connection persistence (SQLite via the shared database package)."""
+"""Router connection persistence (SQLite via the shared database package).
+
+Credentials (``password`` / ``private_key``) are encrypted at rest through the
+``RouterRecord`` secret codec (see ``app.core.vault``): the store only ever
+writes ciphertext and refuses to persist credentials while no encryption key is
+configured. Decrypted values are handed to SSH callers via the record's
+``password``/``private_key`` properties.
+"""
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
-from database.schema.router import RouterRecord
+from app.core.vault import VaultError
+from database.schema.router import RouterRecord, secret_codec
 from database.session import SessionLocal
 
 
@@ -34,6 +42,15 @@ class RouterStore:
         record.device_id = device_id
         return record
 
+    def _assert_encryption_available(
+        self, *, password: str | None, private_key: str | None
+    ) -> None:
+        if (password or private_key) and secret_codec() is None:
+            raise VaultError(
+                "No credential encryption key is configured (AUTH_VAULT_KEY or a "
+                "non-default SECRET_KEY). Set one to save router credentials."
+            )
+
     def save(
         self,
         *,
@@ -47,6 +64,7 @@ class RouterStore:
         device_id: str | None = None,
     ) -> RouterRecord:
         """Insert a new router connection record."""
+        self._assert_encryption_available(password=password, private_key=private_key)
         with SessionLocal() as session:
             record = RouterRecord(
                 name=name,
@@ -83,6 +101,7 @@ class RouterStore:
         Re-sending the wizard for an existing router therefore never produces a
         duplicate connection row.
         """
+        self._assert_encryption_available(password=password, private_key=private_key)
         if router_id is not None:
             with SessionLocal() as session:
                 record = session.get(RouterRecord, router_id)
@@ -129,6 +148,37 @@ class RouterStore:
             ),
             True,
         )
+
+    def has_credentials(self) -> bool:
+        """Return whether any stored router holds a password or private key."""
+        with SessionLocal() as session:
+            stmt = select(RouterRecord).where(
+                or_(
+                    RouterRecord._password.is_not(None),
+                    RouterRecord._private_key.is_not(None),
+                )
+            )
+            return session.scalars(stmt).first() is not None
+
+    def migrate_vault(self, codec) -> int:
+        """Encrypt any legacy plaintext credentials in place. Idempotent.
+
+        Only values lacking the codec's format prefix are rewritten, so running
+        this repeatedly is a no-op after the first successful migration. Returns
+        the number of credential fields encrypted.
+        """
+        migrated = 0
+        with SessionLocal() as session:
+            records = list(session.scalars(select(RouterRecord)).all())
+            for record in records:
+                for column in ("_password", "_private_key"):
+                    raw = getattr(record, column)
+                    if raw is not None and not raw.startswith(codec.prefix):
+                        setattr(record, column, codec.encrypt(raw))
+                        migrated += 1
+            if migrated:
+                session.commit()
+        return migrated
 
     def get_all(self) -> list[RouterRecord]:
         """Return every saved router, most recent first."""

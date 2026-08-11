@@ -15,6 +15,7 @@ from app.api.router import api_router
 from app.core.auth import SessionStore
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.vault import ensure_credential_vault, harden_database_permissions
 from app.db.chat_store import store as chat_store
 from app.db.router_store import store as router_store
 from app.services.chat_service import ChatService
@@ -31,6 +32,11 @@ from database.session import init_db
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     configure_logging(level=settings.log_level)
     init_db()
+    # Configure the credential vault before any router record is read or written:
+    # encryption-at-rest for new credentials and a one-time migration of legacy
+    # plaintext. Fails fast when stored credentials need a key that is missing.
+    ensure_credential_vault(settings, router_store)
+    harden_database_permissions(settings.database_url)
     application.state.provider_manager = load_provider_manager()
     snapshot_service = SnapshotService()
     # If a router was configured previously (onboarding), reconnect to it so the

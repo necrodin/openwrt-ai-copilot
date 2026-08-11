@@ -18,8 +18,10 @@ Selection (:func:`build_backend`):
 from __future__ import annotations
 
 import asyncio
+import base64
 import time
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, Protocol
 
 from router_agent.errors import CommandError
@@ -35,6 +37,11 @@ from router_agent.transport.ssh.errors import (
 )
 from router_agent.transport.ssh.errors import (
     TimeoutError as SSHTimeoutError,
+)
+from router_agent.transport.ssh.host_keys import (
+    HostKeyStore,
+    host_key_settings,
+    verify_host_key,
 )
 
 __all__ = [
@@ -95,6 +102,77 @@ def build_backend(config: SSHConfig, *, name: str | None = None) -> SSHBackend:
     raise SSHError(f"unknown SSH backend: {name!r}")
 
 
+def _system_known_hosts_path(asyncssh: Any) -> Any:
+    """Return the user's OpenSSH known_hosts path, or an empty store when absent."""
+    path = Path("~/.ssh/known_hosts").expanduser()
+    return str(path) if path.is_file() else asyncssh.read_known_hosts(b"")
+
+
+def _asyncssh_host_key_client(
+    asyncssh: Any, store: HostKeyStore, *, allow_tou: bool
+) -> Any:
+    """Build an asyncssh ``client_factory`` that verifies via the host-key store.
+
+    asyncssh calls ``validate_host_public_key`` for every presented host key when
+    verification is enabled (the caller passes an empty ``SSHKnownHosts``). This
+    hook routes that decision through the shared store, so the asyncssh backend
+    behaves identically to the paramiko backend.
+    """
+
+    class _HostKeyVerifyingClient(asyncssh.SSHClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self._store = store
+            self._allow_tou = allow_tou
+
+        def validate_host_public_key(
+            self, host: str, addr: str, port: int, key: Any
+        ) -> bool:
+            key_type = key.algorithm
+            if isinstance(key_type, bytes):
+                key_type = key_type.decode("ascii")
+            key_blob = base64.b64encode(key.encode_ssh_public()).decode("ascii")
+            accepted, _ = verify_host_key(
+                self._store, host, port, key_type, key_blob, allow_tou=self._allow_tou
+            )
+            return accepted
+
+    return _HostKeyVerifyingClient
+
+
+class _ParamikoHostKeyPolicy:
+    """paramiko missing-host-key policy backed by the shared host-key store.
+
+    paramiko invokes ``missing_host_key`` when the server's host key is absent
+    from the client's ``HostKeys`` (which we intentionally leave empty), so every
+    presented key is routed through the same :func:`verify_host_key` logic as the
+    asyncssh backend: unknown keys are recorded under TOFU, changed keys are
+    rejected, and ``reject`` rejects unknown hosts outright.
+    """
+
+    def __init__(
+        self, store: HostKeyStore, *, allow_tou: bool, host: str, port: int
+    ) -> None:
+        self._store = store
+        self._allow_tou = allow_tou
+        self._host = host
+        self._port = port
+
+    def missing_host_key(self, client: Any, hostname: str, key: Any) -> None:
+        key_type = key.get_name()
+        key_blob = base64.b64encode(key.asbytes()).decode("ascii")
+        accepted, reason = verify_host_key(
+            self._store,
+            self._host,
+            self._port,
+            key_type,
+            key_blob,
+            allow_tou=self._allow_tou,
+        )
+        if not accepted:
+            raise HostKeyError(reason)
+
+
 class AsyncSSHBackend:
     """Backend backed by ``asyncssh`` (preferred when installed)."""
 
@@ -145,13 +223,24 @@ class AsyncSSHBackend:
         if client_keys:
             kwargs["client_keys"] = client_keys
 
-        if config.known_hosts is not None:
-            kwargs["known_hosts"] = str(config.known_hosts)
-        elif config.host_key_policy == "auto":
-            # Disable host key verification (development / TOFU behavior)
+        store, allow_tou = host_key_settings(config)
+        if store is not None:
+            # Route every host-key decision through the persisted store. An
+            # empty SSHKnownHosts object keeps asyncssh's verification enabled
+            # while delegating the actual trust decision to our client hook.
+            kwargs["known_hosts"] = asyncssh.read_known_hosts(b"")
+            kwargs["client_factory"] = _asyncssh_host_key_client(
+                asyncssh, store, allow_tou=allow_tou
+            )
+        elif config.host_key_policy == "system":
+            kwargs["known_hosts"] = _system_known_hosts_path(asyncssh)
+        elif config.known_hosts is not None:
+            path = config.known_hosts
+            kwargs["known_hosts"] = (
+                str(path) if path.is_file() else asyncssh.read_known_hosts(b"")
+            )
+        else:  # pragma: no cover - host_key_settings always returns a store here
             kwargs["known_hosts"] = None
-        elif config.host_key_policy == "reject":
-            kwargs["known_hosts"] = asyncssh.KnownHosts()
 
         try:
             self._conn = await asyncssh.connect(**kwargs)
@@ -234,16 +323,21 @@ class ParamikoBackend:
         creds = self._credentials
 
         client = paramiko.SSHClient()
-        if config.known_hosts is not None:
+        store, allow_tou = host_key_settings(config)
+        if store is not None:
+            client.set_missing_host_key_policy(
+                _ParamikoHostKeyPolicy(
+                    store, allow_tou=allow_tou, host=config.host, port=config.port
+                )
+            )
+        elif config.known_hosts is not None:
             client.load_host_keys(str(config.known_hosts))
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
         elif config.host_key_policy == "system":
             client.load_system_host_keys()
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        elif config.host_key_policy == "reject":
+        else:  # pragma: no cover - host_key_settings always returns a store here
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        else:
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         connect_kwargs: dict[str, Any] = {
             "hostname": config.host,
