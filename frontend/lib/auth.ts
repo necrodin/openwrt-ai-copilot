@@ -2,15 +2,16 @@
  * Application authentication for the OpenWrt AI Copilot frontend.
  *
  * The backend enforces bearer-token authentication on every /api/v1 route
- * (except /health, /ready, and /auth/login). Browser users sign in on the
- * /login page with a username and password configured server-side
- * (AUTH_ADMIN_USERNAME/AUTH_ADMIN_PASSWORD for full access,
- * AUTH_READONLY_USERNAME/AUTH_READONLY_PASSWORD for read-only access). The
- * backend exchanges them for a short-lived, server-side session token
- * (POST /auth/login), and the browser sends only that session token on every
- * REST request and WebSocket upgrade. Credentials are never embedded in the
- * client bundle, never stored, and never returned by the API. Programmatic
- * clients continue to authenticate with a static operator API key
+ * (except /health, /ready, /auth/login, and the first-run /setup endpoints).
+ * On the FIRST startup the backend has no accounts, so the UI shows a /setup
+ * page that creates the initial administrator (username + password + confirm).
+ * The backend bcrypt-hashes the password and issues the same short-lived,
+ * server-side session token as a login (POST /setup/admin). Afterwards the
+ * /login page authenticates the stored account (POST /auth/login). In both
+ * paths the browser sends only the session token on every REST request and
+ * WebSocket upgrade. Credentials are never embedded in the client bundle,
+ * never stored, and never returned by the API. Programmatic clients continue
+ * to authenticate with a static operator API key
  * (AUTH_ADMIN_API_KEY / AUTH_READONLY_API_KEY) via `Authorization: Bearer`.
  *
  * The session token is stored in localStorage for reload resilience and sent
@@ -167,6 +168,64 @@ export async function login(
   };
   storeSession(session);
   return session;
+}
+
+/**
+ * Query whether first-run administrator setup is still required. The /setup
+ * page shows instead of /login until the initial account exists.
+ */
+export async function setupStatus(): Promise<boolean> {
+  const res = await fetch(`${API_BASE_URL}/setup/status`);
+  if (!res.ok) {
+    throw new Error("Unable to reach the backend.");
+  }
+  const data = (await res.json()) as { setup_required: boolean };
+  return data.setup_required;
+}
+
+/**
+ * Create the initial administrator account and enter the application.
+ *
+ * The backend validates the password policy, bcrypt-hashes the password (it is
+ * never stored or returned), and mints the same short-lived browser session a
+ * login would. Credentials are sent exactly once and never stored client-side.
+ */
+export async function setupAdmin(
+  username: string,
+  password: string,
+  confirmPassword: string,
+): Promise<AuthSession> {
+  const res = await fetch(`${API_BASE_URL}/setup/admin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, confirm_password: confirmPassword }),
+  });
+  if (!res.ok) {
+    const detail = await extractDetail(res);
+    throw new Error(detail ?? "Setup could not be completed.");
+  }
+  const data = (await res.json()) as {
+    token: string;
+    role: AuthRole;
+    expires_at: string;
+  };
+  const session: AuthSession = {
+    token: data.token,
+    role: data.role,
+    expires_at: data.expires_at,
+  };
+  storeSession(session);
+  return session;
+}
+
+/** Best-effort API detail message (e.g. 409 "Setup has already been completed."). */
+async function extractDetail(res: Response): Promise<string | null> {
+  try {
+    const data = (await res.json()) as { detail?: unknown };
+    return typeof data.detail === "string" ? data.detail : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

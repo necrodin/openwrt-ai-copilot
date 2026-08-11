@@ -59,3 +59,23 @@ def browser_login(
     )
     assert response.status_code == 200, response.text
     return response.json()["token"]
+
+
+def setup_admin(
+    client: TestClient,
+    *,
+    username: str,
+    password: str,
+) -> dict:
+    """Create the initial administrator via the setup endpoint.
+
+    Returns the full session payload (``token``/``role``/``expires_at``/``ttl_seconds``)
+    exactly as the plan of record does: setup succeeds once and mints the normal
+    browser session.
+    """
+    response = client.post(
+        "/api/v1/setup/admin",
+        json={"username": username, "password": password, "confirm_password": password},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()

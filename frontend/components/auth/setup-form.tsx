@@ -17,34 +17,56 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/ui/logo";
 
+const MIN_PASSWORD = 8;
+
 /**
- * Sign-in form. Browser users authenticate with the account created by the
- * first-run setup wizard (the backend hashes the password with bcrypt and
- * never stores or returns it). The backend exchanges the correct credentials
- * for a short-lived, revocable browser session; credentials are never stored
- * in the browser or returned to it.
+ * First-run setup form shown only while no application user exists.
+ *
+ * Creates the initial administrator account: the backend validates the
+ * credentials, stores only a bcrypt hash, and returns the same short-lived,
+ * revocable browser session a login would — so after setup the user lands
+ * directly in the console. The one-time wizard disappears once an account
+ * exists (the backend rejects further setup attempts with 409).
  */
-export function LoginForm() {
-  const { login } = useAuth();
+export function SetupForm() {
+  const { setupAdmin } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [invalid, setInvalid] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function validate(): string | null {
+    if (!username.trim()) {
+      return "Enter a username.";
+    }
+    if (password.length < MIN_PASSWORD) {
+      return `Password must be at least ${MIN_PASSWORD} characters.`;
+    }
+    if (password !== confirmPassword) {
+      return "Passwords do not match.";
+    }
+    return null;
+  }
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!username.trim() || !password || busy) {
+    if (busy) {
+      return;
+    }
+    const problem = validate();
+    if (problem) {
+      setError(problem);
       return;
     }
     setBusy(true);
-    setInvalid(false);
+    setError(null);
     try {
-      await login(username.trim(), password);
+      await setupAdmin(username.trim(), password, confirmPassword);
       // AuthBoundary observes the new authenticated state and routes onward.
     } catch (err) {
-      setInvalid(true);
+      setError(err instanceof Error ? err.message : "Setup could not be completed.");
       setBusy(false);
-      void err;
     }
   }
 
@@ -53,9 +75,9 @@ export function LoginForm() {
       <CardHeader className="items-center gap-3 text-center">
         <Logo withText responsive ariaHiddenText={false} />
         <div className="space-y-1">
-          <CardTitle className="text-lg">Sign in</CardTitle>
+          <CardTitle className="text-lg">Create your administrator account</CardTitle>
           <CardDescription>
-            Sign in to open a scoped browser session.
+            First-run setup for this OpenWrt AI Copilot instance.
           </CardDescription>
         </div>
       </CardHeader>
@@ -77,7 +99,7 @@ export function LoginForm() {
                 value={username}
                 onChange={(event) => {
                   setUsername(event.target.value);
-                  setInvalid(false);
+                  setError(null);
                 }}
                 className="pl-9"
               />
@@ -94,41 +116,58 @@ export function LoginForm() {
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 value={password}
                 onChange={(event) => {
                   setPassword(event.target.value);
-                  setInvalid(false);
+                  setError(null);
                 }}
                 className="pl-9"
               />
             </div>
           </div>
-          {invalid ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="confirm-password">Confirm password</Label>
+            <div className="relative">
+              <Lock
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                id="confirm-password"
+                name="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value);
+                  setError(null);
+                }}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          {error ? (
             <p className="text-sm text-destructive" role="alert">
-              Invalid username or password.
+              {error}
             </p>
           ) : null}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={busy || !username.trim() || !password}
-          >
+          <Button type="submit" className="w-full" disabled={busy}>
             {busy ? (
               <>
                 <Loader2 className="size-4 animate-spin" aria-hidden />
-                Signing in…
+                Creating account…
               </>
             ) : (
-              "Sign in"
+              "Create administrator account"
             )}
           </Button>
         </CardContent>
       </form>
       <CardFooter>
         <p className="w-full text-center text-xs text-muted-foreground">
-          Read-only accounts can view router state; the admin account also
-          enables management actions.
+          This account has full administrator access. The password is stored
+          only as a secure hash.
         </p>
       </CardFooter>
     </Card>

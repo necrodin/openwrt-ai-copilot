@@ -1,13 +1,11 @@
 """Browser session endpoints.
 
-Browser users authenticate with a username and password configured server-side
-(``AUTH_ADMIN_USERNAME``/``AUTH_ADMIN_PASSWORD`` for full access,
-``AUTH_READONLY_USERNAME``/``AUTH_READONLY_PASSWORD`` for read-only). The
-credentials are operator secrets that must never reach the browser. ``POST
-/auth/login`` exchanges a username/password for a short-lived, server-side
-session token with exactly the role's scopes. The browser then sends only that
-session token. Logout revokes it server-side so a leaked or available token is
-immediately worthless; session expiry bounds its lifetime from the start.
+Browser users authenticate against stored application-user accounts (see the
+first-run setup flow in ``app.api.v1.setup``): ``POST /auth/login`` exchanges a
+username/password for a short-lived, server-side session token with exactly the
+account's role scopes. Passwords are validated with bcrypt; only the hash is
+stored. The browser then sends only that session token. Logout revokes it
+server-side so a leaked or available token is immediately worthless.
 
 Programmatic clients never use this endpoint: they authenticate as before with
 ``Authorization: Bearer <AUTH_*_API_KEY>``.
@@ -16,7 +14,7 @@ Programmatic clients never use this endpoint: they authenticate as before with
 from __future__ import annotations
 
 import asyncio
-import hmac
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -30,7 +28,9 @@ from app.core.auth import (
     _bearer_token,
     require_authentication,
 )
-from app.core.config import settings
+from app.core.passwords import hash_password, normalize_username, verify_password
+from app.db.user_store import UserStore
+from app.db.user_store import store as default_user_store
 
 router = APIRouter(tags=["auth"])
 
@@ -45,41 +45,48 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=512)
 
 
-def _constant_time_equal(a: str, b: str) -> bool:
-    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+def _user_store(request: Request) -> UserStore:
+    """Resolve the user store (isolated stores can replace the default)."""
+    return getattr(request.app.state, "user_store", None) or default_user_store
+
+
+@lru_cache(maxsize=1)
+def _timing_dummy_hash() -> str:
+    """A valid bcrypt hash so a failed login costs a bcrypt verify too.
+
+    Equalizes the timing difference between "unknown username" and "wrong
+    password" so neither the username space nor the password space is probed
+    faster, and makes the failed-login path constant-ish regardless of which
+    credential was wrong.
+    """
+    return hash_password("OpenWrt-AI-Copilot timing-equalization dummy")
+
+
+def _verify_or_dummy(password: str, stored_hash: str | None) -> bool:
+    return verify_password(password, stored_hash or _timing_dummy_hash())
 
 
 @router.post("/auth/login", summary="Sign in with an admin or read-only username")
 async def login(request: Request, body: LoginRequest) -> dict:
-    """Authenticate a browser user and mint a scoped session.
+    """Authenticate a browser user against a stored account and mint a session.
 
-    Compares the presented username/password against the configured admin and
-    read-only accounts with constant-time comparisons (admin takes precedence).
-    Returns a short-lived, revocable session token; credentials are never
-    returned. Unknown or mismatched credentials are rejected without revealing
-    which field was wrong.
+    Looks up the normalized username and compares the password to its stored
+    bcrypt hash. Unknown users run the same hashing comparison against a dummy
+    hash so failures are timing-uniform; invalid credentials are rejected
+    without revealing which field was wrong. Returns a short-lived, revocable
+    session token; credentials are never returned.
     """
-    scopes = None
     role = None
-    if (
-        settings.auth_admin_username
-        and settings.auth_admin_password
-        and _constant_time_equal(settings.auth_admin_username, body.username)
-        and _constant_time_equal(settings.auth_admin_password, body.password)
-    ):
-        scopes, role = ADMIN_SCOPES, "admin"
-    elif (
-        settings.auth_readonly_username
-        and settings.auth_readonly_password
-        and _constant_time_equal(settings.auth_readonly_username, body.username)
-        and _constant_time_equal(settings.auth_readonly_password, body.password)
-    ):
-        scopes, role = READ_SCOPES, "readonly"
+    user = _user_store(request).get_by_username(normalize_username(body.username))
 
-    if scopes is None:
+    if user is not None and _verify_or_dummy(body.password, user.password_hash):
+        role = user.role
+
+    if role is None:
         await asyncio.sleep(0.3)  # throttle password-style guessing
         raise _INVALID_CREDENTIALS
 
+    scopes = ADMIN_SCOPES if role == "admin" else READ_SCOPES
     store: SessionStore = request.app.state.auth_sessions
     token, record = store.create(role=role, scopes=scopes)
     return {

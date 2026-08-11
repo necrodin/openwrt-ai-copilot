@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "cryptography>=42.0.0",
+    "bcrypt>=4.1.0",
     "openwrt-ai-database>=0.1.0",
     "openwrt-ai-core>=0.1.0",
     "openwrt-ai-providers>=0.1.0",

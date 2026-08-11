@@ -18,6 +18,8 @@ from app.core.logging import configure_logging
 from app.core.vault import ensure_credential_vault, harden_database_permissions
 from app.db.chat_store import store as chat_store
 from app.db.router_store import store as router_store
+from app.db.user_store import bootstrap_env_credentials
+from app.db.user_store import store as user_store_store
 from app.services.chat_service import ChatService
 from app.services.provider_manager import load_provider_manager
 from app.services.rag_service import load_rag_service
@@ -32,6 +34,13 @@ from database.session import init_db
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     configure_logging(level=settings.log_level)
     init_db()
+    # Optional one-time migration for installations configured with the legacy
+    # environment credentials: seed the first stored accounts from
+    # AUTH_ADMIN_USERNAME/PASSWORD (and the readonly pair) so existing browser
+    # logins keep working. Runs only while the users table is empty; afterwards
+    # stored accounts are authoritative and the env values are ignored.
+    if application.state.env_bootstrap_enabled:
+        bootstrap_env_credentials(application.state.user_store)
     # Configure the credential vault before any router record is read or written:
     # encryption-at-rest for new credentials and a one-time migration of legacy
     # plaintext. Fails fast when stored credentials need a key that is missing.
@@ -104,6 +113,12 @@ def create_app() -> FastAPI:
     # lifespan, so the auth boundary works even for apps started without the
     # full service lifecycle (e.g. lightweight test clients).
     application.state.auth_sessions = SessionStore(settings.auth_session_ttl)
+
+    # Application-user accounts (first-run setup + browser login). Bound to the
+    # default store here so endpoints can resolve it from app state; tests swap
+    # in an isolated store to exercise fresh-installation flows deterministically.
+    application.state.user_store = user_store_store
+    application.state.env_bootstrap_enabled = True
 
     application.include_router(api_router, prefix=settings.api_prefix)
 

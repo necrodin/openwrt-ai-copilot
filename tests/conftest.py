@@ -29,6 +29,24 @@ from fastapi.testclient import TestClient  # noqa: E402
 from tests.auth import admin_headers  # noqa: E402
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_bootstrapped_users() -> None:
+    """Guarantee the shared test database holds the env-seeded accounts.
+
+    The shared temp database is reused for the whole run, so seed it once up
+    front (schema + legacy env-credential bootstrap) — otherwise the first
+    TestClient lifespan is responsible and bare-``create_app`` tests could run
+    against an empty users table. Setup-specific tests that need a truly fresh
+    database opt out by swapping in an isolated ``UserStore`` over their own
+    engine; this shared bootstrap never affects them.
+    """
+    from app.db.user_store import bootstrap_env_credentials
+    from database.session import init_db
+
+    init_db()
+    bootstrap_env_credentials()
+
+
 @pytest.fixture()
 def client() -> TestClient:
     """FastAPI TestClient with lifespan (database init) executed."""

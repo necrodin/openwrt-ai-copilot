@@ -15,16 +15,25 @@ import {
   login as performLogin,
   logoutClient,
   restoreSession,
+  setupAdmin as performSetup,
+  setupStatus,
   type AuthRole,
   type AuthSession,
 } from "@/lib/auth";
 
 type AuthStatus = "loading" | "unauthenticated" | "authenticated";
+type SetupStatus = "loading" | "required" | "complete";
 
 type AuthContextValue = {
   status: AuthStatus;
   role: AuthRole | null;
+  setupStatus: SetupStatus;
   login: (username: string, password: string) => Promise<AuthSession>;
+  setupAdmin: (
+    username: string,
+    password: string,
+    confirmPassword: string,
+  ) => Promise<AuthSession>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -32,14 +41,18 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue>({
   status: "loading",
   role: null,
+  setupStatus: "loading",
   login: async () => {
+    throw new Error("AuthProvider not mounted");
+  },
+  setupAdmin: async () => {
     throw new Error("AuthProvider not mounted");
   },
   logout: async () => {},
   refresh: async () => {},
 });
 
-/** Access the authentication context (status, role, login, logout). */
+/** Access the authentication context (status, role, setup, login, logout). */
 export function useAuth(): AuthContextValue {
   return useContext(AuthContext);
 }
@@ -47,18 +60,22 @@ export function useAuth(): AuthContextValue {
 /**
  * Client-side authentication boundary mounted once at the app root.
  *
- * On mount it restores and validates any stored session against the backend
- * (`GET /auth/session`). While loading it renders a minimal splash so the UI
- * never flashes unauthenticated content. Unauthenticated visitors on any page
- * other than /login are redirected there; authenticated visitors on /login are
- * sent to the console. `login`/`logout` update this shared state so every page
- * and the header stay consistent.
+ * On mount it restores/validates any stored session and probes whether
+ * first-run administrator setup is still required. While loading it renders a
+ * minimal splash so the UI never flashes unauthenticated content.
+ *
+ * Routing:
+ * - setup required and no account yet → every route redirects to /setup.
+ * - setup complete → unauthenticated visitors go to /login; the /setup page
+ *   redirects there too (the one-time wizard is gone for good).
+ * - authenticated visitors on /setup or /login are sent to the console.
  */
 export function AuthBoundary({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [role, setRole] = useState<AuthRole | null>(null);
+  const [setup, setSetup] = useState<SetupStatus>("loading");
 
   const refresh = useCallback(async () => {
     const session = await restoreSession();
@@ -71,13 +88,40 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loadSetupStatus = useCallback(async () => {
+    try {
+      const required = await setupStatus();
+      setSetup(required ? "required" : "complete");
+    } catch {
+      // Backend unreachable — default to "complete" so a transient outage never
+      // locks the user out of the login page once accounts exist.
+      setSetup("complete");
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void loadSetupStatus();
+  }, [refresh, loadSetupStatus]);
 
   const login = useCallback(
     async (username: string, password: string): Promise<AuthSession> => {
       const session = await performLogin(username, password);
+      setRole(session.role);
+      setStatus("authenticated");
+      return session;
+    },
+    [],
+  );
+
+  const setupAdmin = useCallback(
+    async (
+      username: string,
+      password: string,
+      confirmPassword: string,
+    ): Promise<AuthSession> => {
+      const session = await performSetup(username, password, confirmPassword);
+      setSetup("complete");
       setRole(session.role);
       setStatus("authenticated");
       return session;
@@ -91,33 +135,43 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
     setStatus("unauthenticated");
   }, []);
 
-  const onLoginPage = pathname === "/login";
+  const onAuthPage = pathname === "/login" || pathname === "/setup";
 
   useEffect(() => {
-    if (onLoginPage) {
+    if (status === "loading" || setup === "loading") {
       return;
     }
-    if (status === "unauthenticated") {
+    if (status === "authenticated") {
+      if (onAuthPage) {
+        router.replace("/");
+      }
+      return;
+    }
+    if (setup === "required") {
+      if (pathname !== "/setup") {
+        router.replace("/setup");
+      }
+      return;
+    }
+    // Setup complete: /setup is permanently gone; everything else needs login.
+    if (pathname === "/setup") {
+      router.replace("/login");
+    } else if (pathname !== "/login") {
       router.replace("/login");
     }
-  }, [status, onLoginPage, router]);
-
-  useEffect(() => {
-    if (onLoginPage && status === "authenticated") {
-      router.replace("/");
-    }
-  }, [status, onLoginPage, router]);
+  }, [status, setup, onAuthPage, pathname, router]);
 
   const value = useMemo(
-    () => ({ status, role, login, logout, refresh }),
-    [status, role, login, logout, refresh],
+    () => ({ status, role, setupStatus: setup, login, setupAdmin, logout, refresh }),
+    [status, role, setup, login, setupAdmin, logout, refresh],
   );
 
-  // The login page manages its own state; the splash only guards real pages.
-  if (onLoginPage) {
+  // The auth pages (login/setup) manage their own state; the splash only
+  // guards real pages while the session/setup state is still resolving.
+  if (onAuthPage) {
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
   }
-  if (status !== "authenticated") {
+  if (status !== "authenticated" || setup === "loading") {
     return (
       <AuthContext.Provider value={value}>
         <div className="flex min-h-screen items-center justify-center bg-background">

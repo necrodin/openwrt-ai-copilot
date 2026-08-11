@@ -38,9 +38,31 @@ def _migrate_chat_owner_column() -> None:
         )
 
 
+def _migrate_app_users_single_admin_index() -> None:
+    """Guarantee the "at most one admin" partial index on a pre-existing table.
+
+    ``create_all`` adds the index when the table is first created, but never
+    alters existing tables. This guarded ``CREATE UNIQUE INDEX IF NOT EXISTS``
+    is the idempotent backfill for a race where the users table already exists
+    without it (e.g. a table created before the index was declared). It is a
+    no-op on fresh databases, where ``create_all`` already created the index.
+    """
+    inspector = inspect(engine)
+    if "app_users" not in inspector.get_table_names():
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_single_admin "
+                "ON app_users (role) WHERE role = 'admin'"
+            )
+        )
+
+
 def init_db() -> None:
     """Create tables from the ORM metadata. Idempotent (IF NOT EXISTS)."""
     from database.schema import Base  # noqa: F401  (import registers models)
 
     Base.metadata.create_all(bind=engine)
     _migrate_chat_owner_column()
+    _migrate_app_users_single_admin_index()

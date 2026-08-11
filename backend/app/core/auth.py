@@ -15,10 +15,15 @@ the programmatic-client credential — scripts, CLI, and curl authenticate with
 - ``AUTH_READONLY_API_KEY`` — read-only access: status, dashboard, provider
   introspection, and copilot chat.
 
-Browser users do not use a key. ``POST /auth/login`` authenticates a username
-and password configured via ``AUTH_ADMIN_USERNAME/PASSWORD`` and
-``AUTH_READONLY_USERNAME/PASSWORD`` (see ``app.api.v1.auth``) and exchanges
-them for a scoped browser session; the browser never holds the master key.
+Browser users do not use a key. On first startup the web UI's setup wizard
+creates the initial administrator (bcrypt-hashed password stored in the
+application-users table); ``POST /auth/login`` later authenticates a stored
+username/password (see ``app.api.v1.auth`` and ``app.api.v1.setup``) and
+exchanges them for a scoped browser session; the browser never holds a master
+key. The ``AUTH_ADMIN_USERNAME/PASSWORD`` environment pair remains only as a
+one-time migration seed for installations configured before stored accounts
+existed (``app.db.user_store.bootstrap_env_credentials``), never as the
+runtime credential.
 
 Browser sessions are opaque, short-lived, server-side tokens
 (:class:`SessionStore`). They carry exactly the scopes of the account that

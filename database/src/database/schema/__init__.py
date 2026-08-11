@@ -3,9 +3,16 @@
 Import this package to register all models on `Base.metadata`.
 """
 
+from database.schema.app_user import AppUserRecord
 from database.schema.base import Base
 from database.schema.chat import ChatMessageRecord
 from database.schema.metadata import SystemMetadata
 from database.schema.router import RouterRecord
 
-__all__ = ["Base", "ChatMessageRecord", "RouterRecord", "SystemMetadata"]
+__all__ = [
+    "AppUserRecord",
+    "Base",
+    "ChatMessageRecord",
+    "RouterRecord",
+    "SystemMetadata",
+]

@@ -58,14 +58,18 @@ class Settings(BaseSettings):
     auth_admin_api_key: str = ""
     auth_readonly_api_key: str = ""
 
-    # Browser login credentials. The login page signs in with a username and
-    # password (never an API key); the backend exchanges them for a short-lived
-    # server-side browser session through POST /auth/login. Credentials load
-    # from the environment like the API keys and are never returned or logged.
-    # Leave a field empty to disable that role; with both roles empty the login
-    # endpoint fails closed and the browser cannot open a session.
-    #   AUTH_ADMIN_USERNAME / AUTH_ADMIN_PASSWORD       — full-access browser login.
-    #   AUTH_READONLY_USERNAME / AUTH_READONLY_PASSWORD — read-only browser login.
+    # Browser login accounts. On first startup the web UI runs a setup wizard
+    # that creates the initial administrator; its bcrypt-hashed password is
+    # stored in the application-users table and the plaintext is never kept.
+    # These environment fields are retained strictly for the ONE-TIME migration
+    # of installations previously configured with environment credentials: on
+    # the first boot while the users table is empty, AUTH_ADMIN_USERNAME/
+    # AUTH_ADMIN_PASSWORD (and the readonly pair, when set) are hashed and
+    # stored once. Afterwards the stored accounts are authoritative and these
+    # values are ignored — no AUTH_ADMIN_PASSWORD is required for a fresh
+    # installation. Credentials are never logged or returned by the API.
+    #   AUTH_ADMIN_USERNAME / AUTH_ADMIN_PASSWORD       — legacy full-access bootstrap.
+    #   AUTH_READONLY_USERNAME / AUTH_READONLY_PASSWORD — legacy read-only bootstrap.
     auth_admin_username: str = ""
     auth_admin_password: str = ""
     auth_readonly_username: str = ""
