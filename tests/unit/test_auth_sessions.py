@@ -1,8 +1,8 @@
 """Focused security tests for the browser-session auth layer.
 
 Proves the behavior required of the secure browser auth flow:
-- login issues a session scoped exactly to the minting key (admin vs read-only)
-- login rejects bad keys and never leaks either master key
+- login issues a session scoped exactly to the account used (admin vs read-only)
+- login rejects bad credentials and never leaks either password or master key
 - login is the only new public surface; every protected route still 401s
 - sessions can be introspected and expire
 - logout revokes a session server-side (a revoked token is immediately rejected)
@@ -23,7 +23,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.core.auth import ADMIN_SCOPES
 from app.main import create_app
-from tests.auth import TEST_ADMIN_KEY, TEST_READONLY_KEY
+from tests.auth import (
+    TEST_ADMIN_PASSWORD,
+    TEST_ADMIN_USERNAME,
+    TEST_READONLY_PASSWORD,
+    TEST_READONLY_USERNAME,
+)
 from tests.unit.test_auth_api import _canned_update, _FakeFeed
 
 
@@ -43,9 +48,12 @@ def _session_ws_client() -> Iterator[TestClient]:
         yield client
 
 
-def _login(client: TestClient, api_key: str) -> dict:
-    response = client.post("/api/v1/auth/login", json={"api_key": api_key})
-    assert response.status_code == 200
+def _login(client: TestClient, username: str, password: str) -> dict:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password},
+    )
+    assert response.status_code == 200, response.text
     return response.json()
 
 
@@ -54,15 +62,15 @@ def _bearer(token: str) -> dict[str, str]:
 
 
 def _admin_token(client: TestClient) -> str:
-    return _login(client, TEST_ADMIN_KEY)["token"]
+    return _login(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)["token"]
 
 
 # ── login ──────────────────────────────────────────────────────────────────
 
 
-def test_login_with_admin_key_mints_admin_session() -> None:
+def test_login_with_admin_username_mints_admin_session() -> None:
     with _live_client() as client:
-        body = _login(client, TEST_ADMIN_KEY)
+        body = _login(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)
         assert body["role"] == "admin"
         assert body["token"]
         assert body["expires_at"]
@@ -79,9 +87,9 @@ def test_login_with_admin_key_mints_admin_session() -> None:
         assert response.status_code == 422
 
 
-def test_login_with_readonly_key_mints_readonly_session() -> None:
+def test_login_with_readonly_username_mints_readonly_session() -> None:
     with _live_client() as client:
-        body = _login(client, TEST_READONLY_KEY)
+        body = _login(client, TEST_READONLY_USERNAME, TEST_READONLY_PASSWORD)
         assert body["role"] == "readonly"
         headers = _bearer(body["token"])
         assert client.get("/api/v1/router/status", headers=headers).status_code == 200
@@ -93,17 +101,32 @@ def test_login_with_readonly_key_mints_readonly_session() -> None:
         assert response.status_code == 403
 
 
-def test_login_with_unknown_key_rejected() -> None:
+def test_login_with_wrong_password_rejected() -> None:
     with _live_client() as client:
-        response = client.post("/api/v1/auth/login", json={"api_key": "wrong-key"})
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"username": TEST_ADMIN_USERNAME, "password": "wrong-password"},
+        )
         assert response.status_code == 401
 
 
-def test_login_response_never_contains_master_keys() -> None:
+def test_login_with_unknown_username_rejected() -> None:
     with _live_client() as client:
-        text = json.dumps(_login(client, TEST_ADMIN_KEY))
-        assert TEST_ADMIN_KEY not in text
-        assert TEST_READONLY_KEY not in text
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"username": "nobody", "password": "wrong-password"},
+        )
+        assert response.status_code == 401
+
+
+def test_login_response_never_contains_credentials() -> None:
+    with _live_client() as client:
+        text = json.dumps(_login(client, TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD))
+        # Passwords and the password-derived identity never reach the response;
+        # the admin role label legitimately equals the admin username.
+        assert TEST_ADMIN_PASSWORD not in text
+        assert TEST_READONLY_PASSWORD not in text
+        assert TEST_READONLY_USERNAME not in text
 
 
 def test_login_does_not_open_other_routes() -> None:

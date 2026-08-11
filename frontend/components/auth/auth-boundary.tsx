@@ -24,7 +24,7 @@ type AuthStatus = "loading" | "unauthenticated" | "authenticated";
 type AuthContextValue = {
   status: AuthStatus;
   role: AuthRole | null;
-  login: (apiKey: string) => Promise<AuthSession>;
+  login: (username: string, password: string) => Promise<AuthSession>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -76,8 +76,8 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(
-    async (apiKey: string): Promise<AuthSession> => {
-      const session = await performLogin(apiKey);
+    async (username: string, password: string): Promise<AuthSession> => {
+      const session = await performLogin(username, password);
       setRole(session.role);
       setStatus("authenticated");
       return session;

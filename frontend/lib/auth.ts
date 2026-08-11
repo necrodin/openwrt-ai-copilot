@@ -2,13 +2,16 @@
  * Application authentication for the OpenWrt AI Copilot frontend.
  *
  * The backend enforces bearer-token authentication on every /api/v1 route
- * (except /health, /ready, and /auth/login). Operator API keys
- * (AUTH_ADMIN_API_KEY / AUTH_READONLY_API_KEY) are operator credentials that
- * must NEVER be embedded in the client bundle. Instead the operator signs in
- * through the /login page, the backend exchanges the key for a short-lived,
- * server-side session token (POST /auth/login), and the browser sends only
- * that session token on every REST request and WebSocket upgrade. Logout
- * revokes the session server-side so the token is worthless immediately.
+ * (except /health, /ready, and /auth/login). Browser users sign in on the
+ * /login page with a username and password configured server-side
+ * (AUTH_ADMIN_USERNAME/AUTH_ADMIN_PASSWORD for full access,
+ * AUTH_READONLY_USERNAME/AUTH_READONLY_PASSWORD for read-only access). The
+ * backend exchanges them for a short-lived, server-side session token
+ * (POST /auth/login), and the browser sends only that session token on every
+ * REST request and WebSocket upgrade. Credentials are never embedded in the
+ * client bundle, never stored, and never returned by the API. Programmatic
+ * clients continue to authenticate with a static operator API key
+ * (AUTH_ADMIN_API_KEY / AUTH_READONLY_API_KEY) via `Authorization: Bearer`.
  *
  * The session token is stored in localStorage for reload resilience and sent
  * via `Authorization: Bearer <session>`. WebSockets cannot set request headers
@@ -136,26 +139,21 @@ export function wsAuthQuery(): string {
 }
 
 /**
- * Exchange an operator API key for a short-lived browser session token. The
- * master key is sent to the backend exactly once and is never stored.
+ * Sign in with a username and password and store the short-lived browser
+ * session token. Credentials are sent to the backend exactly once and are
+ * never stored; only the returned session token is persisted.
  */
-export async function login(apiKey: string): Promise<AuthSession> {
+export async function login(
+  username: string,
+  password: string,
+): Promise<AuthSession> {
   const res = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ api_key: apiKey }),
+    body: JSON.stringify({ username, password }),
   });
   if (!res.ok) {
-    let detail = "Sign-in failed";
-    try {
-      const body = (await res.json()) as { detail?: string };
-      if (body.detail) {
-        detail = body.detail;
-      }
-    } catch {
-      // keep the generic message
-    }
-    throw new Error(detail);
+    throw new Error("Invalid username or password.");
   }
   const data = (await res.json()) as {
     token: string;

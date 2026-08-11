@@ -7,9 +7,10 @@ export const metadata: Metadata = {
 };
 
 /**
- * Operator sign-in. The backend operator API keys are configured server-side;
- * the operator enters one here and the backend exchanges it for a scoped,
- * short-lived session token. No master key is ever stored in the browser.
+ * Operator sign-in. The browser login credentials (username + password) are
+ * configured server-side; entering them here opens a scoped, short-lived
+ * browser session. No credentials or master keys are ever stored in the
+ * browser.
  */
 export default function LoginPage() {
   return (

@@ -26,6 +26,7 @@ from tests.auth import (
     TEST_ADMIN_KEY,
     TEST_READONLY_KEY,
     admin_headers,
+    browser_login,
     readonly_headers,
     unknown_headers,
 )
@@ -81,11 +82,9 @@ def _ws_client(update: DashboardUpdate | None = None) -> Iterator[TestClient]:
         yield client
 
 
-def _login(client: TestClient, api_key: str) -> str:
-    """Mint a browser session token (the only credential accepted in a URL)."""
-    response = client.post("/api/v1/auth/login", json={"api_key": api_key})
-    assert response.status_code == 200
-    return response.json()["token"]
+def _login(client: TestClient) -> str:
+    """Mint a browser session token via the username/password login endpoint."""
+    return browser_login(client)
 
 
 @contextmanager
@@ -247,7 +246,7 @@ def test_authenticated_websocket_allowed_via_session_query() -> None:
     with (
         _ws_client() as client,
         client.websocket_connect(
-            f"/api/v1/dashboard/ws?token={_login(client, TEST_ADMIN_KEY)}"
+            f"/api/v1/dashboard/ws?token={_login(client)}"
         ) as websocket,
     ):
         frame = json.loads(websocket.receive_text())

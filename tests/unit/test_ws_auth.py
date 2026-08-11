@@ -37,6 +37,7 @@ from tests.auth import (
     TEST_ADMIN_KEY,
     TEST_READONLY_KEY,
     admin_headers,
+    browser_login,
     readonly_headers,
 )
 
@@ -87,10 +88,8 @@ def _ws_client() -> Iterator[TestClient]:
         yield client
 
 
-def _login(client: TestClient, api_key: str) -> str:
-    response = client.post("/api/v1/auth/login", json={"api_key": api_key})
-    assert response.status_code == 200
-    return response.json()["token"]
+def _login(client: TestClient, *, admin: bool = True) -> str:
+    return browser_login(client, admin=admin)
 
 
 def _assert_rejected(client: TestClient, path: str, code: int = 4401) -> None:
@@ -141,7 +140,7 @@ def test_ws_expired_session_in_query_rejected() -> None:
 
 def test_ws_reconnect_after_logout_rejected() -> None:
     with _ws_client() as client:
-        token = _login(client, TEST_ADMIN_KEY)
+        token = _login(client, admin=True)
         _assert_streams(client, f"{WS_PATH}?token={token}")
         # Logout revokes the token server-side; replaying it must not reconnect.
         assert (
@@ -159,12 +158,12 @@ def test_ws_reconnect_after_logout_rejected() -> None:
 
 def test_ws_session_token_in_query_accepted() -> None:
     with _ws_client() as client:
-        _assert_streams(client, f"{WS_PATH}?token={_login(client, TEST_ADMIN_KEY)}")
+        _assert_streams(client, f"{WS_PATH}?token={_login(client, admin=True)}")
 
 
 def test_ws_readonly_session_token_in_query_accepted() -> None:
     with _ws_client() as client:
-        _assert_streams(client, f"{WS_PATH}?token={_login(client, TEST_READONLY_KEY)}")
+        _assert_streams(client, f"{WS_PATH}?token={_login(client, admin=False)}")
 
 
 def test_ws_static_key_in_header_accepted() -> None:
@@ -179,7 +178,7 @@ def test_ws_readonly_header_cannot_reach_write_handlers() -> None:
         # A readonly session streams the dashboard (reads)…
         _assert_streams(
             client,
-            f"{WS_PATH}?token={_login(client, TEST_READONLY_KEY)}",
+            f"{WS_PATH}?token={_login(client, admin=False)}",
         )
         # …but the management boundary still rejects its write attempt.
         assert (
@@ -197,7 +196,7 @@ def test_ws_readonly_header_cannot_reach_write_handlers() -> None:
 
 def test_ws_disallowed_origin_rejected_with_valid_session() -> None:
     with _ws_client() as client:
-        token = _login(client, TEST_ADMIN_KEY)
+        token = _login(client, admin=True)
         with (
             pytest.raises(WebSocketDisconnect) as exc_info,
             client.websocket_connect(
@@ -211,7 +210,7 @@ def test_ws_disallowed_origin_rejected_with_valid_session() -> None:
 
 def test_ws_allowed_origin_accepted() -> None:
     with _ws_client() as client:
-        token = _login(client, TEST_ADMIN_KEY)
+        token = _login(client, admin=True)
         with client.websocket_connect(
             f"{WS_PATH}?token={token}",
             headers={"Origin": ALLOWED_ORIGIN},
@@ -251,7 +250,7 @@ def test_sse_chat_stream_rejects_invalid_token() -> None:
 
 def test_sse_chat_stream_session_token_authorized_boundary() -> None:
     with _ws_client() as client:
-        token = _login(client, TEST_READONLY_KEY)
+        token = _login(client, admin=False)
         response = client.post(
             "/api/v1/chat/stream",
             json={"message": "status?", "confirmed": True},
@@ -265,7 +264,7 @@ def test_sse_chat_stream_session_token_authorized_boundary() -> None:
 
 def test_ws_invalid_header_does_not_fall_back_to_query() -> None:
     with _ws_client() as client:
-        token = _login(client, TEST_ADMIN_KEY)
+        token = _login(client, admin=True)
         # A presented-but-invalid header credential rejects the upgrade even
         # when a valid session token sits in the query — no silent downgrade
         # from one credential channel to another.

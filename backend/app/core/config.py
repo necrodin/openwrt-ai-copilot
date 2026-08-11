@@ -47,18 +47,29 @@ class Settings(BaseSettings):
     # TODO(Sprint 2+): move to a proper secrets manager; never log this value.
     secret_key: str = "change-me-in-production"
 
-    # Application API-key authentication (Security Fix #1). Both keys load from
-    # the environment and are never logged or returned by the API. Leave a key
-    # empty to disable that role; with both empty the API fails closed and
-    # rejects every protected request until a key is configured.
+    # API-key authentication for programmatic clients (Security Fix #1). Both
+    # keys load from the environment and are never logged or returned by the
+    # API. Leave a key empty to disable that role; with both empty the API
+    # fails closed and rejects every protected request until a key is
+    # configured. Programmatic clients authenticate with
+    # ``Authorization: Bearer <AUTH_*_API_KEY>``.
     #   AUTH_ADMIN_API_KEY    — full access (reads + management/write actions).
     #   AUTH_READONLY_API_KEY — read-only access (status/dashboard/chat only).
-    #
-    # The keys are operator credentials. The browser never receives them: the
-    # frontend exchanges a key (typed or injected server-side) for a short-lived
-    # server-side session through POST /auth/login, then sends the session token.
     auth_admin_api_key: str = ""
     auth_readonly_api_key: str = ""
+
+    # Browser login credentials. The login page signs in with a username and
+    # password (never an API key); the backend exchanges them for a short-lived
+    # server-side browser session through POST /auth/login. Credentials load
+    # from the environment like the API keys and are never returned or logged.
+    # Leave a field empty to disable that role; with both roles empty the login
+    # endpoint fails closed and the browser cannot open a session.
+    #   AUTH_ADMIN_USERNAME / AUTH_ADMIN_PASSWORD       — full-access browser login.
+    #   AUTH_READONLY_USERNAME / AUTH_READONLY_PASSWORD — read-only browser login.
+    auth_admin_username: str = ""
+    auth_admin_password: str = ""
+    auth_readonly_username: str = ""
+    auth_readonly_password: str = ""
 
     # Lifetime of a browser session issued by /auth/login, in seconds.
     # Sessions are held in a server-side store so logout can revoke them.

@@ -1,27 +1,30 @@
 """Application-level authentication and authorization.
 
 Security Fix #1: a small, self-contained auth boundary for the self-hosted
-HTTP API. It implements scoped API-key authentication as an application-level
+HTTP API. It implements scoped authentication as an application-level
 abstraction that can later be backed by OIDC/JWT without changing the call
 sites (dependencies resolve to an :class:`AuthPrincipal`; swap the resolver to
 verify JWTs and the routers stay the same).
 
 Two operator-provided API keys are configured through environment variables
-(never hardcoded, never logged, never returned by the API):
+(never hardcoded, never logged, never returned by the API). These keys remain
+the programmatic-client credential — scripts, CLI, and curl authenticate with
+``Authorization: Bearer <key>``:
 
 - ``AUTH_ADMIN_API_KEY``    — full access: reads + management/write actions.
 - ``AUTH_READONLY_API_KEY`` — read-only access: status, dashboard, provider
   introspection, and copilot chat.
 
-These keys are *operator credentials*. They authenticate server-to-server
-callers (CLI, scripts, curl) and are exchanged once for a scoped browser
-session through ``POST /auth/login``; the browser never holds the master key.
+Browser users do not use a key. ``POST /auth/login`` authenticates a username
+and password configured via ``AUTH_ADMIN_USERNAME/PASSWORD`` and
+``AUTH_READONLY_USERNAME/PASSWORD`` (see ``app.api.v1.auth``) and exchanges
+them for a scoped browser session; the browser never holds the master key.
 
 Browser sessions are opaque, short-lived, server-side tokens
-(:class:`SessionStore`). They carry exactly the scopes of the key that minted
-them, expire after ``AUTH_SESSION_TTL`` seconds, and can be revoked on logout.
-This makes a leaked browser token bounded (expiry) and revocable (logout) —
-the two properties a permanent static key can never provide.
+(:class:`SessionStore`). They carry exactly the scopes of the account that
+minted them, expire after ``AUTH_SESSION_TTL`` seconds, and can be revoked on
+logout. This makes a leaked browser token bounded (expiry) and revocable
+(logout) — the two properties a permanent static key can never provide.
 
 Clients authenticate with ``Authorization: Bearer <token>``. WebSocket
 connections authenticate the same way — via the ``Authorization`` header or,

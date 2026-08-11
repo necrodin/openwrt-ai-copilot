@@ -21,7 +21,11 @@ from app.main import create_app
 from app.services.chat_service import ChatService
 from providers.factory import ProviderManager
 from providers.openai import OpenAIProvider
-from tests.auth import TEST_ADMIN_KEY, TEST_READONLY_KEY
+from tests.auth import (
+    TEST_ADMIN_KEY,
+    TEST_READONLY_KEY,
+    browser_login,
+)
 from tests.unit.providers_helpers import make_provider
 
 
@@ -58,10 +62,9 @@ def _make_client(seen: dict) -> TestClient:
         yield client
 
 
-def _login(client: TestClient, key: str) -> dict[str, str]:
-    response = client.post("/api/v1/auth/login", json={"api_key": key})
-    assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['token']}"}
+def _login(client: TestClient) -> dict[str, str]:
+    token = browser_login(client)
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _chat(client: TestClient, headers: dict[str, str], session_id: str, message: str) -> None:
@@ -89,8 +92,8 @@ def _history(client: TestClient, headers: dict[str, str], session_id: str) -> li
 def test_two_browser_sessions_do_not_share_chat_history() -> None:
     seen: dict = {}
     with _make_client(seen) as client:
-        headers_a = _login(client, TEST_ADMIN_KEY)
-        headers_b = _login(client, TEST_ADMIN_KEY)
+        headers_a = _login(client)
+        headers_b = _login(client)
         _chat(client, headers_a, "iso-shared", "private-a")
 
         assert [m["role"] for m in _history(client, headers_b, "iso-shared")] == []
@@ -103,8 +106,8 @@ def test_two_browser_sessions_do_not_share_chat_history() -> None:
 def test_sessions_listing_is_scoped_to_the_caller() -> None:
     seen: dict = {}
     with _make_client(seen) as client:
-        headers_a = _login(client, TEST_ADMIN_KEY)
-        headers_b = _login(client, TEST_ADMIN_KEY)
+        headers_a = _login(client)
+        headers_b = _login(client)
         _chat(client, headers_a, "iso-own-session", "hi")
 
         ids_b = {s["session_id"] for s in client.get(
@@ -120,8 +123,8 @@ def test_sessions_listing_is_scoped_to_the_caller() -> None:
 def test_cross_principal_chat_cannot_exfiltrate_history_into_llm() -> None:
     seen: dict = {}
     with _make_client(seen) as client:
-        headers_a = _login(client, TEST_ADMIN_KEY)
-        headers_b = _login(client, TEST_ADMIN_KEY)
+        headers_a = _login(client)
+        headers_b = _login(client)
         secret = "GSR-CONFIDENTIAL-99"
         _chat(client, headers_a, "iso-exfil", secret)
 

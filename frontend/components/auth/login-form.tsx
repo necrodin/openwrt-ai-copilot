@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Loader2 } from "lucide-react";
+import { Loader2, Lock, User } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { useAuth } from "@/components/auth/auth-boundary";
@@ -18,30 +18,33 @@ import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/ui/logo";
 
 /**
- * Sign-in form. Exchanges an operator API key (AUTH_ADMIN_API_KEY or
- * AUTH_READONLY_API_KEY, configured on the backend) for a short-lived,
- * revocable browser session. The key is sent to the backend once and is never
- * stored or embedded in the bundle.
+ * Sign-in form. Browser users authenticate with a username and password
+ * configured server-side (AUTH_ADMIN_USERNAME/PASSWORD for full access and
+ * AUTH_READONLY_USERNAME/PASSWORD for read-only access). The backend exchanges
+ * the credentials for a short-lived, revocable browser session; credentials
+ * are never stored in the browser or returned to it.
  */
 export function LoginForm() {
   const { login } = useAuth();
-  const [apiKey, setApiKey] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState(false);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!apiKey.trim() || busy) {
+    if (!username.trim() || !password || busy) {
       return;
     }
     setBusy(true);
-    setError(null);
+    setInvalid(false);
     try {
-      await login(apiKey.trim());
+      await login(username.trim(), password);
       // AuthBoundary observes the new authenticated state and routes onward.
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed");
+      setInvalid(true);
       setBusy(false);
+      void err;
     }
   }
 
@@ -52,38 +55,65 @@ export function LoginForm() {
         <div className="space-y-1">
           <CardTitle className="text-lg">Sign in</CardTitle>
           <CardDescription>
-            Enter an operator API key to open a scoped browser session.
+            Sign in to open a scoped browser session.
           </CardDescription>
         </div>
       </CardHeader>
-      <form onSubmit={onSubmit}>
+      <form onSubmit={onSubmit} noValidate>
         <CardContent className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="api-key">API key</Label>
+            <Label htmlFor="username">Username</Label>
             <div className="relative">
-              <KeyRound
+              <User
                 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
               />
               <Input
-                id="api-key"
-                name="api-key"
-                type="password"
-                autoComplete="off"
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
                 autoFocus
-                placeholder="AUTH_ADMIN_API_KEY or AUTH_READONLY_API_KEY"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
+                value={username}
+                onChange={(event) => {
+                  setUsername(event.target.value);
+                  setInvalid(false);
+                }}
                 className="pl-9"
               />
             </div>
           </div>
-          {error ? (
+          <div className="space-y-1.5">
+            <Label htmlFor="password">Password</Label>
+            <div className="relative">
+              <Lock
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setInvalid(false);
+                }}
+                className="pl-9"
+              />
+            </div>
+          </div>
+          {invalid ? (
             <p className="text-sm text-destructive" role="alert">
-              {error}
+              Invalid username or password.
             </p>
           ) : null}
-          <Button type="submit" className="w-full" disabled={busy || !apiKey.trim()}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={busy || !username.trim() || !password}
+          >
             {busy ? (
               <>
                 <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -97,8 +127,8 @@ export function LoginForm() {
       </form>
       <CardFooter>
         <p className="w-full text-center text-xs text-muted-foreground">
-          Read-only keys can view router state; the admin key also enables
-          management actions.
+          Read-only accounts can view router state; the admin account also
+          enables management actions.
         </p>
       </CardFooter>
     </Card>
