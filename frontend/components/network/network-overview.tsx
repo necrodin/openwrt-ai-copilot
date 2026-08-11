@@ -5,7 +5,7 @@ import { Router } from "lucide-react";
 import type { NetworkInterface, NetworkStatus } from "@/lib/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { interfaceAddresses } from "@/lib/dashboard-utils";
+import { interfaceAddresses, isWan } from "@/lib/dashboard-utils";
 
 type Props = {
   interfaces: NetworkInterface[];
@@ -40,7 +40,7 @@ export function NetworkOverview({
   networkStatus,
   hostname,
 }: Props) {
-  const wanIfaces = interfaces.filter((iface) => iface.name.startsWith("wan"));
+  const wanIfaces = interfaces.filter(isWan);
   const lanIfaces = interfaces.filter(
     (iface) => iface.name.startsWith("lan") || iface.device?.startsWith("br-"),
   );

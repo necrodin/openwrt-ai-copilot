@@ -14,17 +14,32 @@ from router_agent.collectors.base import Collector, CollectorContext
 from router_agent.model import DhcpInfo, DhcpLease, DhcpPool, DhcpStaticLease
 
 _OPTION_LINE = re.compile(r"^dhcp\.(?P<section>[^=]+)\.(?P<option>\w+)='(?P<value>[^']*)'$")
+_SECTION_LINE = re.compile(r"^dhcp\.(?P<section>[^=.]+)=(?P<type>[^=\s]+)$")
 
 
-def _uci_sections(text: str) -> dict[str, dict[str, list[str]]]:
+def _uci_sections(
+    text: str,
+) -> tuple[dict[str, dict[str, list[str]]], dict[str, str]]:
+    """Parse ``uci show dhcp`` into ``(sections, types)``.
+
+    Sections may be anonymous (``@dhcp[0]``) or named (``config dhcp 'lan'``
+    shows up as ``dhcp.lan=dhcp``); ``types`` records the UCI section type so
+    named sections are matched the same way anonymous ones are.
+    """
     sections: dict[str, dict[str, list[str]]] = {}
+    types: dict[str, str] = {}
     for line in text.splitlines():
-        m = _OPTION_LINE.match(line.strip())
+        line = line.strip()
+        section_line = _SECTION_LINE.match(line)
+        if section_line:
+            types[section_line.group("section")] = section_line.group("type")
+            continue
+        m = _OPTION_LINE.match(line)
         if not m:
             continue
         section, option, value = m.group("section"), m.group("option"), m.group("value")
         sections.setdefault(section, {}).setdefault(option, []).append(value)
-    return sections
+    return sections, types
 
 
 def _range_end(start: str | None, limit: str | None) -> str | None:
@@ -47,14 +62,21 @@ def _opt_first(
     return opts.get(key, [default])[0]
 
 
-def _parse_pools(sections: dict[str, dict[str, list[str]]]) -> tuple[bool, list[DhcpPool]]:
+def _is_type(name: str, prefix: str, types: dict[str, str], expected: str) -> bool:
+    return (name.startswith(f"@{prefix}") or types.get(name) == expected)
+
+
+def _parse_pools(
+    sections: dict[str, dict[str, list[str]]],
+    types: dict[str, str],
+) -> tuple[bool, list[DhcpPool]]:
     enabled = True
     pools: list[DhcpPool] = []
     for name, opts in sections.items():
-        if name.startswith("@dnsmasq"):
+        if _is_type(name, "dnsmasq", types, "dnsmasq"):
             enabled = opts.get("enable_dnsmasq", ["1"])[0] != "0"
             continue
-        if not name.startswith("@dhcp"):
+        if not _is_type(name, "dhcp", types, "dhcp"):
             continue
 
         start = _opt_first(opts, "start")
@@ -72,7 +94,10 @@ def _parse_pools(sections: dict[str, dict[str, list[str]]]) -> tuple[bool, list[
     return enabled, pools
 
 
-def _parse_dnsmasq(sections: dict[str, dict[str, list[str]]]) -> tuple[
+def _parse_dnsmasq(
+    sections: dict[str, dict[str, list[str]]],
+    types: dict[str, str],
+) -> tuple[
     str | None,
     list[str],
     str | None,
@@ -83,7 +108,7 @@ def _parse_dnsmasq(sections: dict[str, dict[str, list[str]]]) -> tuple[
     domain: str | None = None
     static_leases: list[DhcpStaticLease] = []
     for name, opts in sections.items():
-        if name.startswith("@dnsmasq"):
+        if _is_type(name, "dnsmasq", types, "dnsmasq"):
             domain = opts.get("domain", [None])[0]
             for value in opts.get("dhcp_option", []):
                 option_number, _, option_value = value.partition(",")
@@ -92,7 +117,7 @@ def _parse_dnsmasq(sections: dict[str, dict[str, list[str]]]) -> tuple[
                     gateway = option_value
                 elif option_number.strip() == "6" and option_value:
                     dns.extend(s for s in option_value.split(",") if s.strip())
-        elif name.startswith("@host"):
+        elif _is_type(name, "host", types, "host"):
             static_leases.append(
                 DhcpStaticLease(
                     section=name,
@@ -127,9 +152,9 @@ class DhcpCollector(Collector):
 
     def collect(self, ctx: CollectorContext) -> DhcpInfo:
         raw = ctx.sh("uci show dhcp", default="")
-        sections = _uci_sections(raw)
-        enabled, pools = _parse_pools(sections)
-        gateway, dns, domain, static_leases = _parse_dnsmasq(sections)
+        sections, types = _uci_sections(raw)
+        enabled, pools = _parse_pools(sections, types)
+        gateway, dns, domain, static_leases = _parse_dnsmasq(sections, types)
         leases: list[DhcpLease] = []
         try:
             data = ctx.ubus.call("dhcp", "leases")

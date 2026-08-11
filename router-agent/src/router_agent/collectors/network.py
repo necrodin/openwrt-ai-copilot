@@ -25,7 +25,7 @@ import re
 from typing import Any
 
 from router_agent.collectors.base import Collector, CollectorContext
-from router_agent.model import NetworkAddress, NetworkInterface
+from router_agent.model import WAN_PROTOS, NetworkAddress, NetworkInterface
 
 _VLAN = re.compile(r"^(.+)\.(\d+)$")
 
@@ -174,7 +174,7 @@ class NetworkCollector(Collector):
                         up=bool(entry.get("up", False)),
                         proto=entry.get("proto"),
                         device=device,
-                        mac=dev.get("macaddr") or (dev.get("macaddress") if dev else None),
+                        mac=(dev.get("macaddr") or dev.get("macaddress")) if dev else None,
                         link=(
                             dev.get("carrier")
                             if dev is not None and "carrier" in dev
@@ -211,7 +211,7 @@ class NetworkCollector(Collector):
                         up=bool(dev.get("up", False)),
                         proto=None,
                         device=device,
-                        mac=dev.get("macaddr") or (dev.get("macaddress") if dev else None),
+                        mac=(dev.get("macaddr") or dev.get("macaddress")) if dev else None,
                         link=(
                             dev.get("carrier")
                             if "carrier" in dev
@@ -262,15 +262,30 @@ class NetworkCollector(Collector):
 
     @staticmethod
     def _default_route(ctx: CollectorContext) -> tuple[str | None, str | None]:
-        """Return ``(gateway_ip, device)`` from the IPv4 routing table."""
-        for line in ctx.sh("ip -o route show default", default="").splitlines():
-            parts = line.split()
-            if len(parts) >= 3 and parts[0] == "default":
-                gateway = parts[2]
+        """Return ``(gateway_ip, device)`` from the default routing table.
+
+        Prefers the IPv4 default route, then falls back to the IPv6 default
+        route for uplink *device* discovery (an IPv6-only WAN has no IPv4
+        default). A link-scope default route (``default dev eth0`` with no
+        ``via``) has no gateway; only its device is used.
+        """
+        for table in ("ip -o route show default", "ip -o -6 route show default"):
+            for line in ctx.sh(table, default="").splitlines():
+                parts = line.split()
+                if len(parts) < 2 or parts[0] != "default":
+                    continue
                 device = None
                 if "dev" in parts:
                     device = parts[parts.index("dev") + 1]
-                return gateway, device
+                gateway = None
+                if "via" in parts:
+                    gateway = parts[parts.index("via") + 1]
+                elif parts[1] != "dev":
+                    return None, device
+                if table.startswith("ip -o route show default"):
+                    return gateway, device
+                if gateway is not None or device is not None:
+                    return gateway, device
         try:
             data = ctx.ubus.call("network.route", "dump")
             routes = data.get("route", []) if isinstance(data, dict) else []
@@ -291,7 +306,7 @@ class NetworkCollector(Collector):
         servers: list[str] = []
         for line in raw.splitlines():
             parts = line.split()
-            if len(parts) >= 2 and parts[0] == "nameserver":
+            if len(parts) >= 2 and parts[0] == "nameserver" and parts[1] not in servers:
                 servers.append(parts[1])
         return servers
 
@@ -318,9 +333,9 @@ class NetworkCollector(Collector):
         wan_interface = device
         if wan_interface is None:
             wan_name = next(
-                (i.name for i in interfaces if i.proto in ("dhcp", "pppoe", "ppp")), None
+                (i.name for i in interfaces if i.proto in WAN_PROTOS), None
             )
-            wan_interface = wan_name or (interfaces[0].name if interfaces else None)
+            wan_interface = wan_name
         ctx.state["network_status"] = {
             "gateway": gateway,
             "dns": self._dns_servers(ctx),

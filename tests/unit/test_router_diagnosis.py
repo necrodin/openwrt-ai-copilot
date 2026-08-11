@@ -144,6 +144,28 @@ def test_missing_wan_interface() -> None:
     assert ok.findings == []
 
 
+def test_wan_detected_by_proto_regardless_of_name() -> None:
+    """An uplink with no ``wan`` in its name (e.g. VLAN ``eth0.2`` or a modem)
+    still counts as WAN via its proto, so no false 'Missing WAN' finding."""
+    report = _engine().diagnose(
+        _snapshot(
+            network=[{"name": "eth0.2", "up": True, "proto": "dhcp"}],
+            wifi={"radios": ["radio0"], "client_count": 2},
+        )
+    )
+    assert report.findings == []
+
+
+def test_wan_detected_by_cellular_proto() -> None:
+    report = _engine().diagnose(
+        _snapshot(
+            network=[{"name": "wwan0", "up": True, "proto": "qmi"}],
+            wifi={"radios": ["radio0"], "client_count": 2},
+        )
+    )
+    assert report.findings == []
+
+
 def test_missing_wifi() -> None:
     report = _engine().diagnose(
         _snapshot(

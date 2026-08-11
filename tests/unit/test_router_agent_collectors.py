@@ -1188,3 +1188,293 @@ def test_network_collector_surfaces_standalone_devices() -> None:
     assert by_name["phy0-ap0"].up is True
     # Bridge member metadata still flows to the bridge entry itself.
     assert by_name["lan"].bridge_members == ["eth0.1", "phy0-ap0", "phy1-ap0"]
+
+
+# --------------------------------------------------------------------------- #
+# WAN/LAN harden: default-route parsing, WAN by proto, unknown-uplink honesty   #
+# --------------------------------------------------------------------------- #
+
+
+def test_network_collector_link_scope_default_route_has_no_gateway() -> None:
+    """``default dev eth0 scope link`` carries no gateway; only the device is heard."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0",
+                            "ipv4-address": [{"address": "203.0.113.10", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+            "ip -o route show default": "default dev eth0 scope link\n",
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    wan = next(i for i in interfaces if i.name == "wan")
+    assert wan.gateway is None
+    assert ctx.state["network_status"]["gateway"] is None
+    assert ctx.state["network_status"]["wan_interface"] == "eth0"
+
+
+def test_network_collector_ipv6_default_route_detects_uplink() -> None:
+    """An IPv6-only uplink still yields a wan_interface via the IPv6 default route."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan6",
+                            "up": True,
+                            "proto": "dhcpv6",
+                            "device": "eth0",
+                            "ipv4-address": [],
+                            "ipv6-address": [{"address": "2001:db8::10", "mask": 64}],
+                        }
+                    ]
+                }
+            ),
+            "ip -o -6 route show default": "default via fe80::1 dev eth0 metric 1024\n",
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["wan_interface"] == "eth0"
+
+
+def test_network_collector_wan_detected_by_proto_without_wan_name() -> None:
+    """A cellular/misc WAN (no ``wan`` in the name) is recognized by its proto."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wwan0",
+                            "up": True,
+                            "proto": "qmi",
+                            "device": "wwan0",
+                            "ipv4-address": [{"address": "10.0.0.2", "mask": 32}],
+                        },
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan",
+                            "ipv4-address": [{"address": "192.168.1.1", "mask": 24}],
+                        },
+                    ]
+                }
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["wan_interface"] == "wwan0"
+
+
+def test_network_collector_no_wan_does_not_misreport_lan() -> None:
+    """Without a default route or WAN proto, wan_interface is None, not lan."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "proto": "static",
+                            "device": "br-lan",
+                            "ipv4-address": [{"address": "192.168.1.1", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["wan_interface"] is None
+
+
+def test_network_collector_survives_missing_device_status() -> None:
+    """When ``network.device status`` is unavailable, interfaces must still be
+    surfaced (link/speed/mac unknown) instead of dropping the whole section."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0",
+                            "ipv4-address": [{"address": "203.0.113.10", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    assert len(interfaces) == 1
+    wan = interfaces[0]
+    assert wan.name == "wan"
+    assert wan.up is True
+    assert wan.device == "eth0"
+    assert wan.mac is None
+    assert wan.link is None
+    assert wan.addresses[0].address == "203.0.113.10"
+
+
+def test_network_collector_dns_deduplicated() -> None:
+    """Repeated resolv.conf nameservers collapse to a stable unique list."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
+                "nameserver 1.1.1.1\nnameserver 1.1.1.1\nnameserver 8.8.8.8\n"
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["dns"] == ["1.1.1.1", "8.8.8.8"]
+
+
+# --------------------------------------------------------------------------- #
+# VPN harden: inactive-but-configured WireGuard, modern netifd address keys     #
+# --------------------------------------------------------------------------- #
+
+
+def test_vpn_collector_wireguard_configured_but_inactive_is_surfaced() -> None:
+    """A WireGuard interface in the netifd dump stays visible even when ``wg``
+    reports nothing (tool missing or interface down): configured-but-inactive."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wg0",
+                            "up": False,
+                            "proto": "wireguard",
+                            "device": "wg0",
+                            "ipv4-address": [{"address": "10.0.0.1", "mask": 32}],
+                        }
+                    ]
+                }
+            ),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    wg = tunnels[0]
+    assert wg.kind == "wireguard"
+    assert wg.up is False
+    assert wg.addresses == ["10.0.0.1"]
+    assert wg.detail["state"] == "configured-but-inactive"
+
+
+def test_vpn_collector_wireguard_netifd_modern_address_keys() -> None:
+    """Modern OpenWrt reports addresses under ipv4-address/ipv6-address, not the
+    legacy ``addresses`` key; both shapes must surface for a live tunnel."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": (
+                "wg0:\tpublic-key: PUBKEY\n"
+                "wg0:\tlisten-port: 51820\n"
+                "wg0:\tpeer: PEERKEY\n"
+            ),
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wg0",
+                            "up": True,
+                            "proto": "wireguard",
+                            "ipv4-address": [{"address": "10.0.0.2", "mask": 32}],
+                            "ipv6-address": [{"address": "fd00::2", "mask": 128}],
+                        }
+                    ]
+                }
+            ),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert tunnels[0].addresses == ["10.0.0.2", "fd00::2"]
+
+
+def test_vpn_collector_openvpn_netifd_modern_address_keys() -> None:
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "vpn0",
+                            "up": True,
+                            "proto": "openvpn",
+                            "ipv4-address": [{"address": "10.8.0.1", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    assert tunnels[0].kind == "openvpn"
+    assert tunnels[0].addresses == ["10.8.0.1"]
+
+
+# --------------------------------------------------------------------------- #
+# DHCP harden: named UCI sections (the stock OpenWrt shape)                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_dhcp_collector_named_sections() -> None:
+    """Stock OpenWrt uses named sections (``config dhcp 'lan'``); the type line
+    (``dhcp.lan=dhcp``) must let pools and static host leases parse, and an
+    odhcpd section must never be mistaken for a pool."""
+    ctx = make_context(
+        {
+            "uci show dhcp": (
+                "dhcp.lan=dhcp\n"
+                "dhcp.lan.interface='lan'\n"
+                "dhcp.lan.start='100'\n"
+                "dhcp.lan.limit='150'\n"
+                "dhcp.lan.leasetime='12h'\n"
+                "dhcp.odhcpd=odhcpd\n"
+                "dhcp.odhcpd.maindhcp='0'\n"
+                "dhcp.printer=host\n"
+                "dhcp.printer.name='printer'\n"
+                "dhcp.printer.ip='192.168.1.99'\n"
+                "dhcp.printer.mac='aa:bb:cc:00:00:02'\n"
+                "dhcp.dnsmasq=dnsmasq\n"
+                "dhcp.dnsmasq.enable_dnsmasq='1'\n"
+            ),
+            "ubus call dhcp leases": json.dumps({"leases": []}),
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    assert info.enabled is True
+    assert len(info.pools) == 1
+    pool = info.pools[0]
+    assert pool.name == "lan"
+    assert pool.interface == "lan"
+    assert pool.limit == 150
+    assert pool.range_end is None  # UCI ``start`` is an offset, not a full IP
+    assert len(info.static_leases) == 1
+    lease = info.static_leases[0]
+    assert lease.hostname == "printer"
+    assert lease.ip == "192.168.1.99"

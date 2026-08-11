@@ -99,6 +99,14 @@ class NetworkInterface(BaseModel):
     tx_dropped: int | None = None
 
 
+#: Interface protos that identify a WAN/uplink regardless of the interface name
+#: (``wan``, ``eth0.2``, or a cellular modem). Shared by collectors, diagnostics
+#: and the frontend so WAN detection stays consistent across layers.
+WAN_PROTOS: frozenset[str] = frozenset(
+    {"dhcp", "dhcpv6", "pppoe", "ppp", "qmi", "wwan", "wwan6", "3g", "lte"}
+)
+
+
 class NetworkStatus(BaseModel):
     """Network-wide state: default gateway and configured DNS servers."""
 

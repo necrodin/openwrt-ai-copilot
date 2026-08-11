@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from app.services.router_snapshot import RouterSnapshot
+from router_agent.model import WAN_PROTOS
 
 Severity = Literal["info", "warning", "critical"]
 
@@ -250,7 +251,7 @@ class RouterDiagnosisEngine:
         interfaces = snapshot.network or []
         if not interfaces:
             return []
-        if any(_is_wan(iface.get("name") or "") for iface in interfaces):
+        if any(_is_wan(iface) for iface in interfaces):
             return []
         return [
             Finding(
@@ -321,6 +322,15 @@ def _num(value: Any) -> float | None:
     return None
 
 
-def _is_wan(name: str) -> bool:
-    lowered = name.lower()
-    return lowered == "wan" or "wan" in lowered
+def _is_wan(iface: dict) -> bool:
+    """True for an interface whose name or proto marks it as the uplink/WAN.
+
+    Names vary across firmware (``wan``, ``eth0.2``, ``wwan0``…), so an
+    interface with a WAN-class proto counts even when the name never says
+    ``wan`` (e.g. a VLAN-tagged or cellular uplink).
+    """
+    name = (str(iface.get("name") or "")).lower()
+    if name == "wan" or "wan" in name:
+        return True
+    proto = iface.get("proto")
+    return isinstance(proto, str) and proto in WAN_PROTOS

@@ -114,6 +114,19 @@ def _enrich_wg_peers(
         data["latest_handshake"] = latest
 
 
+def _netifd_addresses(entry: dict) -> list[str]:
+    """Addresses from either the legacy ``addresses`` or modern OpenWrt
+    ``ipv4-address`` / ``ipv6-address`` response keys."""
+    raw = entry.get("addresses")
+    if raw is None:
+        raw = list(entry.get("ipv4-address", [])) + list(entry.get("ipv6-address", []))
+    return [
+        (a.get("address") or "")
+        for a in raw
+        if isinstance(a, dict) and a.get("address")
+    ]
+
+
 def _apply_netifd(tunnels: dict[str, dict], network_ifaces: list[dict]) -> None:
     for entry in network_ifaces:
         name = entry.get("interface")
@@ -123,12 +136,7 @@ def _apply_netifd(tunnels: dict[str, dict], network_ifaces: list[dict]) -> None:
         if runtime is None:
             continue
         runtime["up"] = bool(entry.get("up", False))
-        addresses = [
-            (a.get("address") or "")
-            for a in entry.get("addresses", [])
-            if a.get("address")
-        ]
-        runtime["addresses"] = addresses
+        runtime["addresses"] = _netifd_addresses(entry)
 
 
 class VpnCollector(Collector):
@@ -162,9 +170,13 @@ class VpnCollector(Collector):
         for entry in network_ifaces:
             proto = entry.get("proto")
             name = entry.get("interface")
-            if proto == "openvpn" and name not in seen:
-                tunnels.append(self._openvpn_from_netifd(entry))
-                seen.add(name)
+            if name and name not in seen:
+                if proto == "openvpn":
+                    tunnels.append(self._openvpn_from_netifd(entry))
+                    seen.add(name)
+                elif proto == "wireguard":
+                    tunnels.append(self._wireguard_from_netifd(entry))
+                    seen.add(name)
 
         self._collect_openvpn_config(ctx, tunnels, seen)
 
@@ -220,15 +232,26 @@ class VpnCollector(Collector):
 
     @staticmethod
     def _openvpn_from_netifd(entry: dict) -> VpnTunnel:
-        addresses = [
-            (a.get("address") or "") for a in entry.get("addresses", []) if a.get("address")
-        ]
         return VpnTunnel(
             name=entry["interface"],
             kind="openvpn",
             up=bool(entry.get("up", False)),
-            addresses=addresses,
+            addresses=_netifd_addresses(entry),
             detail={"mode": "tunnel"},
+        )
+
+    @staticmethod
+    def _wireguard_from_netifd(entry: dict) -> VpnTunnel:
+        """A WireGuard interface netifd reports but ``wg`` produced no runtime
+        state for (tool missing, interface down, or first run). Keeping it in
+        the snapshot lets the UI distinguish *configured-but-inactive* from
+        *never configured*."""
+        return VpnTunnel(
+            name=entry["interface"],
+            kind="wireguard",
+            up=bool(entry.get("up", False)),
+            addresses=_netifd_addresses(entry),
+            detail={"peers": [], "state": "configured-but-inactive"},
         )
 
     def _collect_openvpn_config(
