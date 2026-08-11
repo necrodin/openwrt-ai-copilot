@@ -28,8 +28,14 @@ class RouterTestRequest(BaseModel):
 
 
 class RouterSaveRequest(BaseModel):
-    """Final onboarding payload; persisted so the app reconnects on restart."""
+    """Final onboarding payload; persisted so the app reconnects on restart.
 
+    ``router_id`` optionally targets an existing saved record for an upsert
+    (re-onboarding / IP change). When omitted the most recent router is updated
+    if one exists, otherwise a new record is created.
+    """
+
+    router_id: int | None = Field(default=None, gt=0)
     name: str = Field(min_length=1, max_length=128)
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(default=22, ge=1, le=65535)

@@ -35,6 +35,7 @@ export function RouterOverviewWidget({ snapshot, loading = false, error = null }
   const meta = snapshot.meta;
   const uptimeSeconds = snapshot.cpu?.uptime_seconds ?? null;
   const rows = [
+    { label: "IP Address", value: na(meta.host), mono: true },
     { label: "Hostname", value: na(kernel.hostname), mono: true },
     { label: "Model", value: na(kernel.model) || na(meta.model) },
     { label: "Vendor", value: null },

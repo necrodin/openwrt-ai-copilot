@@ -55,6 +55,10 @@ class RouterSnapshotService:
     def __init__(self, cache: RouterContextCache | None = None) -> None:
         self._cache = cache if cache is not None else RouterContextCache()
 
+    def clear(self) -> None:
+        """Drop every cached tool result so the next build re-executes tools."""
+        self._cache.clear()
+
     def build(
         self,
         executor: RouterToolExecutor,

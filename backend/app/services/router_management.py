@@ -293,6 +293,19 @@ class RouterManagementService:
         """The job store backing this service."""
         return self._jobs
 
+    def invalidate_caches(self) -> None:
+        """Drop short-lived inventory caches after a connection change.
+
+        The package inventory and opkg search list are gathered from whatever
+        router the service is currently pointed at; when the active router's
+        connection changes (IP change / re-onboarding / removal) these cached
+        bytes would otherwise describe the previous device.
+        """
+        self._packages_cache = {}
+        self._packages_cache_at = 0.0
+        self._opkg_list_text = ""
+        self._opkg_list_at = 0.0
+
     # -- connection -------------------------------------------------------- #
 
     def connection(self) -> RouterConnection:

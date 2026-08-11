@@ -98,6 +98,16 @@ class RouterManager:
         """Return the ids of all registered routers."""
         return list(self._routers)
 
+    def invalidate(self) -> None:
+        """Clear the tool-result + snapshot caches of every registered router.
+
+        Called after the active connection changes (IP change or re-onboarding)
+        so cached Router Tool executions never reference the previous router.
+        """
+        for registered in self._routers.values():
+            registered.cache.clear()
+            registered.snapshot_service.clear()
+
     def resolve(self, router_id: str) -> RegisteredRouter:
         """Return the registered router for ``router_id``.
 

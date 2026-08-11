@@ -133,10 +133,12 @@ export function detectDevice(credentials: RouterCredentials): Promise<DeviceInfo
 export function saveRouter(
   name: string,
   credentials: RouterCredentials,
+  routerId?: number,
 ): Promise<SaveResult> {
   return postJson("/router/save", {
     ...toRequestPayload(credentials),
     name,
+    router_id: routerId ?? null,
   });
 }
 

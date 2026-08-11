@@ -7,7 +7,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Footer } from "@/components/layout/footer";
 import { Logo } from "@/components/ui/logo";
@@ -30,6 +30,7 @@ import {
   type DeviceInfo,
   type NetworkInterfaceSummary,
   type RouterCredentials,
+  type SavedRouter,
   type WifiRadioSummary,
 } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
@@ -393,6 +394,7 @@ export default function OnboardingPage() {
   const [testing, setTesting] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState<DeviceInfo | null>(null);
   const [saving, setSaving] = useState(false);
+  const currentRouterRef = useRef<SavedRouter | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -401,7 +403,27 @@ export default function OnboardingPage() {
         if (cancelled) {
           return;
         }
-        if (data.routers.length > 0) {
+        // Re-onboarding an existing router: the wizard was re-opened with
+        // ?reconnect=<id> (or ?reconnect for the most recent router), so it is
+        // allowed to run even though a router is already configured.
+        const params = new URLSearchParams(window.location.search);
+        const reconnect = params.get("reconnect");
+        const saved = data.routers;
+        if (reconnect !== null && saved.length > 0) {
+          const target =
+            saved.find((item) => String(item.id) === reconnect) ?? saved[0];
+          currentRouterRef.current = target;
+          setCredentials((prev) => ({
+            ...prev,
+            host: target.host,
+            port: target.port,
+            username: target.username,
+          }));
+          setName(target.name);
+          setLoading(false);
+          return;
+        }
+        if (saved.length > 0) {
           router.replace("/dashboard");
           return;
         }
@@ -459,7 +481,7 @@ export default function OnboardingPage() {
     }
     setSaving(true);
     try {
-      await saveRouter(name.trim(), credentials);
+      await saveRouter(name.trim(), credentials, currentRouterRef.current?.id);
       router.replace("/dashboard");
     } catch (err) {
       setError(

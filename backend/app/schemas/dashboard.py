@@ -19,7 +19,7 @@ class DashboardUpdate(BaseModel):
     type: Literal["update"] = "update"
     sequence: int
     sent_at: datetime
-    source: Literal["ssh", "local", "simulated"]
+    source: Literal["ssh", "local", "simulated", "none"]
     device_id: str
     connected: bool = True
     error: str | None = None

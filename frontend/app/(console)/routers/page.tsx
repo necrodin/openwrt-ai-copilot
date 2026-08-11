@@ -162,6 +162,11 @@ export default function RoutersPage() {
             {update ? (
               <StatusBadge label={sourceLabel(update.source)} tone="neutral" />
             ) : null}
+            <Button asChild variant="outline" size="sm">
+              <Link href={routers.length === 1 ? `/onboarding?reconnect=${routers[0].id}` : "/onboarding?reconnect"}>
+                Reconnect
+              </Link>
+            </Button>
           </div>
         </div>
 

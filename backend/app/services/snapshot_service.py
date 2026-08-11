@@ -141,6 +141,36 @@ class SnapshotService:
         self._latest = None
         return connection
 
+    def clear_connection(self, *, reason: str = "Router connection removed") -> None:
+        """Detach the active router and mark the feed disconnected.
+
+        Stops the poll loop, drops the retained snapshot so stale data is never
+        served, and broadcasts a disconnected frame to every subscriber.
+        """
+        self._connection = None
+        self._source = "none"
+        self._latest = None
+        if self._task is not None:
+            task, self._task = self._task, None
+            task.cancel()
+        self._broadcast_disconnected(error=reason)
+
+    def _broadcast_disconnected(self, *, error: str) -> None:
+        """Replace the retained frame with a disconnected one for all subscribers."""
+        self._sequence += 1
+        self._latest = DashboardUpdate(
+            type="update",
+            sequence=self._sequence,
+            sent_at=datetime.now(UTC),
+            source="none",
+            device_id=self._device_id,
+            connected=False,
+            error=error,
+            snapshot=None,
+        )
+        for queue in list(self._subscribers):
+            self._send(queue, self._latest)
+
     # -- internals --------------------------------------------------------- #
 
     async def _run(self) -> None:
