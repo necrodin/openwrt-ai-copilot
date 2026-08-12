@@ -7,6 +7,13 @@ import type {
 } from "@/lib/dashboard";
 import { isWan } from "@/lib/dashboard-utils";
 
+export type ClientLabel = {
+  mac_address: string;
+  label: string;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 export type ClientConnection = "online" | "offline";
 
 export type ClientMedium = "wired" | "wireless" | "unknown";
@@ -38,6 +45,11 @@ export type NetworkClient = {
   arp_state: string | null;
   last_seen: string | null;
   sources: ClientSource[];
+  /**
+   * Operator-assigned persistent label for this device, keyed by MAC. Never
+   * replaces hostname/IP/MAC; it is optional metadata shown when present.
+   */
+  label?: string | null;
 };
 
 export type ClientFilter = {
@@ -64,6 +76,57 @@ function normalizeMac(mac: string | null | undefined): string | null {
   }
   const stripped = mac.toLowerCase().replace(/[:-]/g, "");
   return /^[0-9a-f]{12}$/.test(stripped) ? stripped : mac.toLowerCase();
+}
+
+/**
+ * Canonical `aa:bb:cc:11:22:33` form of a MAC, matching the backend's stored
+ * identity. Separators (``:``, ``-``, ``.``) and case are normalized away, so
+ * equivalent representations always map to the same label key.
+ */
+export function canonicalizeMac(mac: string | null | undefined): string | null {
+  if (!mac) {
+    return null;
+  }
+  const hex = mac.toLowerCase().replace(/[^0-9a-f]/g, "");
+  if (hex.length !== 12) {
+    return null;
+  }
+  return [
+    hex.slice(0, 2),
+    hex.slice(2, 4),
+    hex.slice(4, 6),
+    hex.slice(6, 8),
+    hex.slice(8, 10),
+    hex.slice(10, 12),
+  ].join(":");
+}
+
+/**
+ * Merge operator-assigned labels into a client list by MAC address.
+ *
+ * Label identity is the canonical MAC, never the IP, so a device that changes
+ * address keeps its label. Clients without a label are returned unchanged
+ * (the optional field is simply absent).
+ */
+export function applyClientLabels(
+  clients: NetworkClient[],
+  labels: ClientLabel[],
+): NetworkClient[] {
+  const byMac = new Map<string, string>();
+  for (const entry of labels) {
+    const key = canonicalizeMac(entry.mac_address);
+    if (key) {
+      byMac.set(key, entry.label);
+    }
+  }
+  return clients.map((client) => {
+    const key = canonicalizeMac(client.mac);
+    if (!key) {
+      return client;
+    }
+    const label = byMac.get(key);
+    return label !== undefined ? { ...client, label } : client;
+  });
 }
 
 function isLeaseActive(expires: string | null, nowMs: number): boolean {
@@ -336,6 +399,7 @@ export function filterClients(clients: NetworkClient[], filter: ClientFilter): N
       return true;
     }
     const haystack = [
+      client.label,
       client.hostname,
       client.mac,
       client.ipv4,

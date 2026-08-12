@@ -1,5 +1,6 @@
 import { MonitorSmartphone } from "lucide-react";
 
+import { ClientLabelEditor } from "@/components/clients/client-label-editor";
 import { InfoItem } from "@/components/router/info-item";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +10,10 @@ import { formatBytes, formatClock } from "@/lib/dashboard-utils";
 
 type Props = {
   client: NetworkClient;
+  /** Allows the operator to assign/clear a persistent label. */
+  canEdit?: boolean;
+  onSaveLabel?: (mac: string, label: string) => Promise<void>;
+  onClearLabel?: (mac: string) => Promise<void>;
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -32,8 +37,14 @@ function formatLease(expires: string | null): string {
   return expires;
 }
 
-export function ClientDetails({ client }: Props) {
-  const label =
+export function ClientDetails({
+  client,
+  canEdit = false,
+  onSaveLabel,
+  onClearLabel,
+}: Props) {
+  const title =
+    client.label ??
     client.hostname ??
     client.mac ??
     client.ipv4 ??
@@ -47,7 +58,7 @@ export function ClientDetails({ client }: Props) {
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted">
             <MonitorSmartphone className="size-4 text-muted-foreground" aria-hidden />
           </span>
-          <span className="truncate">{label}</span>
+          <span className="truncate">{title}</span>
         </CardTitle>
         <div className="flex flex-wrap items-center gap-1.5 pt-1">
           <StatusBadge
@@ -71,6 +82,24 @@ export function ClientDetails({ client }: Props) {
           ))}
         </div>
       </CardHeader>
+      {canEdit && client.mac ? (
+        <div className="px-4">
+          <ClientLabelEditor
+            label={client.label ?? null}
+            canEdit={canEdit}
+            onSave={async (value) => {
+              if (onSaveLabel && client.mac) {
+                await onSaveLabel(client.mac, value);
+              }
+            }}
+            onClear={async () => {
+              if (onClearLabel && client.mac) {
+                await onClearLabel(client.mac);
+              }
+            }}
+          />
+        </div>
+      ) : null}
       <CardContent className="grid grid-cols-1 gap-4 px-4 sm:grid-cols-2">
         <InfoItem label="Hostname" value={client.hostname ?? "—"} />
         <InfoItem label="IP" value={client.ipv4 ?? "—"} mono />

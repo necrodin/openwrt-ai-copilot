@@ -11,8 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, type StatusBadgeTone } from "@/components/ui/status-badge";
+import { getStoredSession } from "@/lib/auth";
+import { useClientLabels } from "@/hooks/use-client-labels";
 import { useClients } from "@/hooks/use-clients";
-import { filterClients, sortClients, type ClientSortKey } from "@/lib/clients";
+import {
+  applyClientLabels,
+  filterClients,
+  sortClients,
+  type ClientSortKey,
+} from "@/lib/clients";
 import type { ClientConnection, ClientMedium } from "@/lib/clients";
 import { formatClock, sourceLabel, type ConnectionStatus } from "@/lib/dashboard-utils";
 import { listConnections, type SavedRouter } from "@/lib/onboarding";
@@ -47,6 +54,7 @@ const MEDIUM_OPTIONS: { value: ClientMedium | "all"; label: string }[] = [
 export default function ClientsPage() {
   const { clients, status, loading, error, connected, source, routerLabel, updatedAt } =
     useClients();
+  const { labels, save: saveLabel, remove: removeLabel } = useClientLabels();
 
   const [routers, setRouters] = useState<SavedRouter[] | null>(null);
   const [search, setSearch] = useState("");
@@ -54,6 +62,12 @@ export default function ClientsPage() {
   const [medium, setMedium] = useState<ClientMedium | "all">("all");
   const [sortKey, setSortKey] = useState<ClientSortKey>("name");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const canEdit = getStoredSession()?.role === "admin";
+  const labeledClients = useMemo(
+    () => applyClientLabels(clients, labels),
+    [clients, labels],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -74,13 +88,15 @@ export default function ClientsPage() {
   }, []);
 
   const visible = useMemo(
-    () => sortClients(filterClients(clients, { search, connection, medium }), sortKey),
-    [clients, search, connection, medium, sortKey],
+    () =>
+      sortClients(filterClients(labeledClients, { search, connection, medium }), sortKey),
+    [labeledClients, search, connection, medium, sortKey],
   );
 
-  const selectedClient = clients.find((client) => client.id === selectedId) ?? null;
-  const onlineCount = clients.filter((client) => client.online).length;
-  const wirelessCount = clients.filter((client) => client.medium === "wireless").length;
+  const selectedClient =
+    labeledClients.find((client) => client.id === selectedId) ?? null;
+  const onlineCount = labeledClients.filter((client) => client.online).length;
+  const wirelessCount = labeledClients.filter((client) => client.medium === "wireless").length;
 
   if (routers === null) {
     return (
@@ -171,7 +187,7 @@ export default function ClientsPage() {
             />
             <Input
               type="search"
-              placeholder="Search hostname, IP, MAC, interface…"
+              placeholder="Search label, hostname, IP, MAC, interface…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               className="pl-9 pr-8"
@@ -260,7 +276,12 @@ export default function ClientsPage() {
 
           <div className="xl:sticky xl:top-6">
             {selectedClient ? (
-              <ClientDetails client={selectedClient} />
+              <ClientDetails
+                client={selectedClient}
+                canEdit={canEdit}
+                onSaveLabel={saveLabel}
+                onClearLabel={removeLabel}
+              />
             ) : (
               <div className="flex flex-col items-center justify-center gap-3 rounded-xl border py-10 text-center">
                 <span className="flex size-10 items-center justify-center rounded-full border bg-muted">

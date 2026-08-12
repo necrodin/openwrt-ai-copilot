@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from app.api.v1 import (
     auth,
     chat,
+    client_labels,
     dashboard,
     health,
     management,
@@ -34,5 +35,10 @@ api_router.include_router(
     router_endpoints.router, prefix="/v1", dependencies=[Depends(require_read)]
 )
 api_router.include_router(onboarding.router, prefix="/v1", dependencies=[Depends(require_read)])
+# Client labels: the router-level guard covers reads (devices.read); the
+# individual write endpoints additionally require devices.write.
+api_router.include_router(
+    client_labels.router, prefix="/v1", dependencies=[Depends(require_read)]
+)
 api_router.include_router(management.router, prefix="/v1", dependencies=[Depends(require_read)])
 api_router.include_router(chat.router, prefix="/v1", dependencies=[Depends(require_read)])

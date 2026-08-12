@@ -90,6 +90,7 @@ export function ClientTable({
           {clients.map((client) => {
             const selected = client.id === selectedId;
             const label =
+              client.label ??
               client.hostname ??
               client.mac ??
               client.ipv4 ??

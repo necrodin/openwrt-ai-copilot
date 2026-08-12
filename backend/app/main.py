@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.vault import ensure_credential_vault, harden_database_permissions
 from app.db.chat_store import store as chat_store
+from app.db.client_label_store import store as client_label_store
 from app.db.router_store import store as router_store
 from app.db.user_store import bootstrap_env_credentials
 from app.db.user_store import store as user_store_store
@@ -119,6 +120,10 @@ def create_app() -> FastAPI:
     # in an isolated store to exercise fresh-installation flows deterministically.
     application.state.user_store = user_store_store
     application.state.env_bootstrap_enabled = True
+
+    # Client device labels (per-MAC operator labels). Bound here so endpoints
+    # resolve it from app state; tests can swap in an isolated store.
+    application.state.client_label_store = client_label_store
 
     application.include_router(api_router, prefix=settings.api_prefix)
 
