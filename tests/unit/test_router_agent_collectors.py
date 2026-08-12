@@ -217,6 +217,35 @@ def test_storage_collector() -> None:
     assert mounts[1].health is None
 
 
+def test_storage_collector_squashfs_rom_shape() -> None:
+    """Real AC2350 shape: the read-only squashfs ``/rom`` firmware mount is
+    reported at 100% alongside the writable overlay."""
+    ctx = make_context(
+        {
+            "df -kPT": (
+                "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+                "/dev/root      squashfs     5000    5000         0     100% /rom\n"
+                "overlayfs:/overlay  overlay  30000  15000     15000      50% /overlay\n"
+            ),
+            "df -i": (
+                "Filesystem      Inodes IUsed IFree IUse% Mounted on\n"
+                "/dev/root         1024  1024     0   100% /rom\n"
+                "overlayfs:/overlay 65536 3000 62536     5% /overlay\n"
+            ),
+        }
+    )
+    mounts = StorageCollector().collect(ctx)
+    by_mount = {mount.mountpoint: mount for mount in mounts}
+    rom = by_mount["/rom"]
+    assert rom.filesystem == "squashfs"
+    assert rom.use_percent == 100.0
+    assert rom.health is None
+    overlay = by_mount["/overlay"]
+    assert overlay.filesystem == "overlay"
+    assert overlay.use_percent == 50.0
+    assert overlay.health == "ok"
+
+
 def test_network_collector_from_ubus() -> None:
     ctx = make_context(
         {
@@ -493,6 +522,180 @@ def test_wifi_collector_ssids_and_stations() -> None:
     assert client.interface == "phy0-ap0"
 
 
+def test_wifi_collector_falls_back_to_uci_and_live_interfaces() -> None:
+    """Real AC2350 shape: ``ubus call wifi status`` is unavailable (exit 4), so
+    radios must be discovered from the UCI ``wifi-device`` sections and the live
+    kernel wireless interfaces (``phy0-ap0``/``phy1-ap0``)."""
+    ctx = make_context(
+        {
+            # No "ubus call wifi status" entry -> the ubus call raises and the
+            # collector falls back.
+            "uci show wireless": (
+                "wireless=wireless\n"
+                "wireless.radio0=wifi-device\n"
+                "wireless.radio0.name='phy0'\n"
+                "wireless.radio0.type='mac80211'\n"
+                "wireless.radio0.path='1e140000.pcie'\n"
+                "wireless.radio0.htmode='VHT80'\n"
+                "wireless.radio0.hwmode='11a'\n"
+                "wireless.radio0.channel='36'\n"
+                "wireless.radio0.ssid0=wifi-iface\n"
+                "wireless.radio0.ssid0.device='radio0'\n"
+                "wireless.radio0.ssid0.mode='ap'\n"
+                "wireless.radio0.ssid0.ssid='Xiaomi_5G'\n"
+                "wireless.radio0.ssid0.encryption='psk2'\n"
+                "wireless.radio1=wifi-device\n"
+                "wireless.radio1.name='phy1'\n"
+                "wireless.radio1.type='mac80211'\n"
+                "wireless.radio1.path='1e140000.pcie1'\n"
+                "wireless.radio1.htmode='HT40'\n"
+                "wireless.radio1.hwmode='11g'\n"
+                "wireless.radio1.channel='6'\n"
+                "wireless.radio1.ssid1=wifi-iface\n"
+                "wireless.radio1.ssid1.device='radio1'\n"
+                "wireless.radio1.ssid1.mode='ap'\n"
+                "wireless.radio1.ssid1.ssid='Xiaomi_2G'\n"
+                "wireless.radio1.ssid1.encryption='psk2'\n"
+            ),
+            "for i in /sys/class/net/*; do": (
+                "phy0-ap0|phy0|1|0x1003|2|/sys/devices/1e140000.pcie\n"
+                "phy1-ap0|phy1|1|0x1003|1|/sys/devices/1e140000.pcie1\n"
+            ),
+            "iw dev phy0-ap0 station dump 2>/dev/null": (
+                "Station 11:22:33:44:55:66 (on phy0-ap0)\n"
+                "Station aa:bb:cc:dd:ee:ff (on phy0-ap0)\n"
+            ),
+            "iw dev phy1-ap0 station dump 2>/dev/null": (
+                "Station cc:dd:ee:ff:00:11 (on phy1-ap0)\n"
+            ),
+        }
+    )
+    wifi = WifiCollector().collect(ctx)
+
+    assert len(wifi.radios) == 2
+    by_name = {radio.name: radio for radio in wifi.radios}
+    radio0 = by_name["radio0"]
+    assert radio0.up is True
+    assert radio0.band == "5GHz"
+    assert radio0.channel == 36
+    assert radio0.width_mhz == 80
+    assert radio0.station_count == 2
+    assert radio0.ssid == "Xiaomi_5G"
+    assert radio0.hardware == "1e140000.pcie"
+    radio1 = by_name["radio1"]
+    assert radio1.up is True
+    assert radio1.band == "2.4GHz"
+    assert radio1.station_count == 1
+    assert radio1.ssid == "Xiaomi_2G"
+
+    by_ssid = {net.ssid: net for net in wifi.networks}
+    assert set(by_ssid) == {"Xiaomi_5G", "Xiaomi_2G"}
+    assert by_ssid["Xiaomi_5G"].interface == "phy0-ap0"
+    assert by_ssid["Xiaomi_5G"].client_count == 2
+    assert by_ssid["Xiaomi_5G"].encryption == "psk2"
+    assert by_ssid["Xiaomi_2G"].interface == "phy1-ap0"
+    assert by_ssid["Xiaomi_2G"].client_count == 1
+
+
+def test_wifi_collector_live_radios_match_by_sysfs_path() -> None:
+    """Real AC2350 UCI shape: ``wifi-device`` sections carry a ``path`` and
+    ``band`` but no ``name``/``ifname``, and the live wireless interfaces expose
+    a ``phy80211`` symlink (no ``wireless`` dir). Radios must still be matched
+    to their live interfaces via the sysfs device path and reported as UP with
+    station counts."""
+    ctx = make_context(
+        {
+            # No "ubus call wifi status" entry -> fallback path.
+            "uci show wireless": (
+                "wireless=wireless\n"
+                "wireless.radio0=wifi-device\n"
+                "wireless.radio0.type='mac80211'\n"
+                "wireless.radio0.path='pci0000:00/0000:00:00.0'\n"
+                "wireless.radio0.band='5g'\n"
+                "wireless.radio0.channel='36'\n"
+                "wireless.radio0.htmode='VHT80'\n"
+                "wireless.default_radio0=wifi-iface\n"
+                "wireless.default_radio0.device='radio0'\n"
+                "wireless.default_radio0.mode='ap'\n"
+                "wireless.default_radio0.ssid='Nisa-Hira-1'\n"
+                "wireless.default_radio0.encryption='psk2'\n"
+                "wireless.radio1=wifi-device\n"
+                "wireless.radio1.type='mac80211'\n"
+                "wireless.radio1.path='platform/ahb/18100000.wmac'\n"
+                "wireless.radio1.band='2g'\n"
+                "wireless.radio1.channel='1'\n"
+                "wireless.radio1.htmode='HT20'\n"
+                "wireless.default_radio1=wifi-iface\n"
+                "wireless.default_radio1.device='radio1'\n"
+                "wireless.default_radio1.mode='ap'\n"
+                "wireless.default_radio1.ssid='Nisa-Hira-1'\n"
+                "wireless.default_radio1.encryption='psk2'\n"
+            ),
+            "for i in /sys/class/net/*; do": (
+                "phy0-ap0|phy0|1|0x1303|1|/sys/devices/pci0000:00/0000:00:00.0\n"
+                "phy1-ap0|phy1|1|0x1303|0|/sys/devices/platform/ahb/18100000.wmac\n"
+            ),
+            "iw dev phy0-ap0 station dump 2>/dev/null": (
+                "Station 11:22:33:44:55:66 (on phy0-ap0)\n"
+            ),
+        }
+    )
+    wifi = WifiCollector().collect(ctx)
+
+    by_name = {radio.name: radio for radio in wifi.radios}
+    assert set(by_name) == {"radio0", "radio1"}
+    radio0 = by_name["radio0"]
+    assert radio0.up is True
+    assert radio0.band == "5GHz"
+    assert radio0.channel == 36
+    assert radio0.station_count == 1
+    assert radio0.ssid == "Nisa-Hira-1"
+    assert radio0.hardware == "pci0000:00/0000:00:00.0"
+    radio1 = by_name["radio1"]
+    assert radio1.up is True
+    assert radio1.band == "2.4GHz"
+    assert radio1.channel == 1
+    assert radio1.station_count == 0
+    assert radio1.hardware == "platform/ahb/18100000.wmac"
+
+    by_ssid = {net.ssid: net for net in wifi.networks}
+    assert set(by_ssid) == {"Nisa-Hira-1"}
+    nets = {net.radio: net for net in wifi.networks}
+    assert nets["radio0"].interface == "phy0-ap0"
+    assert nets["radio0"].client_count == 1
+    # Zero-station radio1: no live station count, so no interface is attached.
+    assert nets["radio1"].interface is None
+    assert nets["radio1"].client_count == 0
+
+
+def test_wifi_collector_surfaces_live_radios_without_uci_config() -> None:
+    """Radios present in the kernel but absent from UCI (unmanaged hardware)
+    are still reported so genuinely available radios are never missed."""
+    ctx = make_context(
+        {
+            "uci show wireless": "wireless=wireless\n",
+            "for i in /sys/class/net/*; do": (
+                "phy0-ap0|phy0|1|0x1003|0\n"
+                "wlan1|phy1|0|0x1000|0\n"
+            ),
+        }
+    )
+    wifi = WifiCollector().collect(ctx)
+    by_name = {radio.name: radio for radio in wifi.radios}
+    assert set(by_name) == {"phy0", "phy1"}
+    assert by_name["phy0"].up is True
+    assert by_name["phy1"].up is False
+
+
+def test_wifi_collector_does_not_invent_radios() -> None:
+    """No UCI devices and no live wireless interfaces -> no radios at all."""
+    ctx = make_context({"uci show wireless": "wireless=wireless\n"})
+    wifi = WifiCollector().collect(ctx)
+    assert wifi.radios == []
+    assert wifi.networks == []
+    assert wifi.clients == []
+
+
 def test_clients_collector() -> None:
     ctx = make_context(
         {
@@ -717,6 +920,61 @@ def test_kernel_collector() -> None:
     assert kernel.kernel == "6.6.80"
     assert kernel.model == "Generic x86/64"
     assert ctx.state["system.board"]["hostname"] == "OpenWrt"
+
+
+def test_kernel_collector_parses_release_dict() -> None:
+    """Modern OpenWrt ``ubus system board`` returns ``release`` as a dict; the
+    collector must expose structured fields instead of a raw dict repr."""
+    ctx = make_context(
+        {
+            "ubus call system board": json.dumps(
+                {
+                    "architecture": "MIPS 74Kc V5.4",
+                    "board_name": "xiaomi,mi-router-ac2350",
+                    "hostname": "OpenWrt",
+                    "kernel": "5.15.160",
+                    "model": "Xiaomi Mi Router AC2350",
+                    "release": {
+                        "distribution": "OpenWrt",
+                        "version": "25.12.0",
+                        "revision": "r32713-f919e7899d",
+                        "target": "ath79/generic",
+                        "description": "OpenWrt 25.12.0 r32713-f919e7899d",
+                    },
+                    "system": "Qualcomm Atheros QCA956X ver 1 rev 0",
+                }
+            )
+        }
+    )
+    kernel = KernelCollector().collect(ctx)
+    assert kernel.distribution == "OpenWrt"
+    assert kernel.release_version == "25.12.0"
+    assert kernel.revision == "r32713-f919e7899d"
+    assert kernel.target == "ath79/generic"
+    assert kernel.release_description == "OpenWrt 25.12.0 r32713-f919e7899d"
+    assert kernel.release == "OpenWrt 25.12.0 r32713-f919e7899d"
+    assert "{" not in kernel.release
+    assert "distribution" not in kernel.release
+
+
+def test_kernel_collector_tolerates_string_release() -> None:
+    """Legacy firmware returns a plain string for ``release``."""
+    ctx = make_context(
+        {
+            "ubus call system board": json.dumps(
+                {
+                    "kernel": "5.10.110",
+                    "release": "SNAPSHOT",
+                    "version": "1.0",
+                }
+            )
+        }
+    )
+    kernel = KernelCollector().collect(ctx)
+    assert kernel.release == "SNAPSHOT"
+    assert kernel.release_version == "SNAPSHOT"
+    assert kernel.distribution is None
+    assert kernel.revision is None
 
 
 def test_logs_collector_parses_syslog_lines() -> None:

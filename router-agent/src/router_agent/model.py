@@ -370,6 +370,17 @@ class KernelInfo(BaseModel):
     board: str = ""
     system: str = ""
     version: str = ""
+    #: Structured OpenWrt release details parsed from the ``release`` field of
+    #: ``ubus system board`` (a dict on modern OpenWrt, a string on older ones).
+    #: ``release`` above stays a clean human-readable string; these fields carry
+    #: the individual components so UIs never render a raw dict.
+    distribution: str | None = None
+    release_version: str | None = None
+    revision: str | None = None
+    target: str | None = None
+    release_description: str | None = None
+    #: Build date when the release metadata reports one (may be absent).
+    build_date: str | None = None
 
 
 class LogEntry(BaseModel):

@@ -318,6 +318,12 @@ export type KernelInfo = {
   board: string;
   system: string;
   version: string;
+  distribution: string | null;
+  release_version: string | null;
+  revision: string | null;
+  target: string | null;
+  release_description: string | null;
+  build_date: string | null;
 };
 
 export type SnapshotMeta = {

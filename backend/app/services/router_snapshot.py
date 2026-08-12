@@ -88,7 +88,7 @@ class RouterSnapshotService:
             memory=_value(collected.get("memory")),
             storage=_value(collected.get("storage")),
             network=_value(collected.get("network")),
-            wifi=None,
+            wifi=_value(collected.get("wifi")),
         )
 
     def render_markdown(

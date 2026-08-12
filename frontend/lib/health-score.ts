@@ -1,4 +1,4 @@
-import type { DeviceSnapshot } from "@/lib/dashboard";
+import type { DeviceSnapshot, StorageMount } from "@/lib/dashboard";
 import { isWan } from "@/lib/dashboard-utils";
 
 export type HealthTone = "excellent" | "good" | "fair" | "poor";
@@ -16,6 +16,18 @@ export type HealthScoreResult = {
   tone: HealthTone;
   factors: HealthFactor[];
 };
+
+//: Read-only firmware image filesystems whose fixed capacity sits at ~100% by
+//: design (e.g. the squashfs ``/rom`` on OpenWrt). They never represent
+//: writable free-space exhaustion, so they are excluded from the storage factor.
+const READONLY_IMAGE_FS = new Set(["squashfs", "erofs", "romfs"]);
+
+function isReadonlyFirmwareMount(mount: StorageMount): boolean {
+  return (
+    READONLY_IMAGE_FS.has(mount.filesystem.toLowerCase()) ||
+    mount.mountpoint === "/rom"
+  );
+}
 
 function clamp(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -70,10 +82,13 @@ export function computeHealthScore(
     factors.push({ label: "Memory", detail: `${memPercent.toFixed(0)}% used`, status: "ok" });
   }
 
-  if (snapshot.storage.length > 0) {
+  const writableStorage = snapshot.storage.filter(
+    (mount) => !isReadonlyFirmwareMount(mount),
+  );
+  if (writableStorage.length > 0) {
     const storageMax = Math.max(
       0,
-      ...snapshot.storage.map((mount) => mount.use_percent ?? 0),
+      ...writableStorage.map((mount) => mount.use_percent ?? 0),
     );
     if (storageMax >= 90) {
       deduct(15);

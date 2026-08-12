@@ -102,6 +102,61 @@ def test_storage_utilization_thresholds() -> None:
     assert critical.findings[0].severity == "critical"
 
 
+def test_squashfs_rom_full_does_not_alert() -> None:
+    """A 100% full read-only squashfs ``/rom`` (firmware image) must NOT produce
+    a writable storage-utilization finding."""
+    engine = _engine()
+    rom = {
+        "mountpoint": "/rom",
+        "device": "/dev/root",
+        "filesystem": "squashfs",
+        "use_percent": 100.0,
+    }
+    mounts = [rom]
+    assert engine.diagnose(_snapshot(storage=mounts)).findings == []
+
+
+def test_squashfs_rom_full_with_full_overlay_still_alerts_on_overlay() -> None:
+    """Writable overlay near-full stays monitored even when /rom squashfs is 100%."""
+    engine = _engine()
+    rom = {
+        "mountpoint": "/rom",
+        "device": "/dev/root",
+        "filesystem": "squashfs",
+        "use_percent": 100.0,
+    }
+    overlay = {
+        "mountpoint": "/overlay",
+        "device": "overlayfs:/overlay",
+        "filesystem": "overlay",
+        "use_percent": 97.0,
+    }
+    mounts = [rom, overlay]
+    findings = engine.diagnose(_snapshot(storage=mounts)).findings
+    assert len(findings) == 1
+    assert findings[0].title == "Critical storage utilization"
+    assert "overlay" in findings[0].description
+
+
+def test_other_readonly_image_filesystems_are_ignored() -> None:
+    """erofs/romfs read-only image filesystems behave like squashfs /rom."""
+    engine = _engine()
+    mounts = [
+        {"mountpoint": "/", "device": "/dev/root", "filesystem": "erofs", "use_percent": 100.0},
+        {"mountpoint": "/rom", "device": "/dev/root", "filesystem": "romfs", "use_percent": 100.0},
+    ]
+    assert engine.diagnose(_snapshot(storage=mounts)).findings == []
+
+
+def test_normal_writable_storage_does_not_false_alert() -> None:
+    engine = _engine()
+    mounts = [
+        {"mountpoint": "/rom", "filesystem": "squashfs", "use_percent": 100.0},
+        {"mountpoint": "/overlay", "filesystem": "ubifs", "use_percent": 40.0},
+    ]
+    assert engine.diagnose(_snapshot(storage=mounts)).findings == []
+
+
 def test_offline_router_is_critical() -> None:
     report = _engine().diagnose(
         _snapshot(system=None, cpu=None, memory=None, storage=None, network=None, wifi=None)
@@ -183,6 +238,27 @@ def test_missing_wifi() -> None:
         )
     )
     assert ok.findings == []
+
+
+def test_wifi_radios_present_suppresses_missing_wifi() -> None:
+    """Radios discovered from UCI/live state (dict shape emitted by the wifi
+    tool) must suppress the 'Missing WiFi' finding."""
+    report = _engine().diagnose(
+        _snapshot(
+            network=[{"name": "br-lan", "up": True, "proto": "static"}],
+            storage=[{"mountpoint": "/rom", "filesystem": "squashfs", "use_percent": 100.0}],
+            wifi={
+                "radios": [
+                    {"name": "radio0", "up": True, "ssid": "Xiaomi_5G"},
+                    {"name": "radio1", "up": True, "ssid": "Xiaomi_2G"},
+                ],
+                "client_count": 3,
+            },
+        )
+    )
+    titles = [finding.title for finding in report.findings]
+    assert "Missing WiFi" not in titles
+    assert "Critical storage utilization" not in titles
 
 
 def test_unknown_values_report_info() -> None:

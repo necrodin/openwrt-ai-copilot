@@ -61,6 +61,11 @@ export function InternetWidget({ snapshot, loading = false, error = null }: Prop
   }
   const status = internetStatus(snapshot);
   const kernel = snapshot.kernel;
+  const distribution = kernel.distribution || "OpenWrt";
+  const version = kernel.release_version || kernel.release || null;
+  const target = kernel.target || null;
+  const revision = kernel.revision || null;
+  const build = kernel.build_date || null;
 
   return (
     <Widget
@@ -80,12 +85,34 @@ export function InternetWidget({ snapshot, loading = false, error = null }: Prop
           >
             {status.label}
           </Badge>
-          <span className="text-xs text-muted-foreground">
-            {kernel.kernel ? `OpenWrt ${kernel.kernel}` : "OpenWrt"}
-            {kernel.release ? ` · ${kernel.release}` : ""}
+          <span className="text-xs font-medium text-muted-foreground">
+            {distribution}
+            {version ? ` ${version}` : ""}
           </span>
         </div>
         <p className="text-sm text-muted-foreground">{status.detail}</p>
+        {target || revision || build ? (
+          <dl className="space-y-0.5 text-xs text-muted-foreground">
+            {target ? (
+              <div className="flex items-baseline gap-1.5">
+                <dt className="shrink-0 font-medium">Target:</dt>
+                <dd className="truncate">{target}</dd>
+              </div>
+            ) : null}
+            {revision ? (
+              <div className="flex items-baseline gap-1.5">
+                <dt className="shrink-0 font-medium">Revision:</dt>
+                <dd className="truncate font-mono">{revision}</dd>
+              </div>
+            ) : null}
+            {build ? (
+              <div className="flex items-baseline gap-1.5">
+                <dt className="shrink-0 font-medium">Build:</dt>
+                <dd className="truncate">{build}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
         {snapshot.network_status ? (
           <div className="space-y-1 text-xs text-muted-foreground">
             {snapshot.network_status.gateway ? (

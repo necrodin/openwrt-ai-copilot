@@ -55,3 +55,7 @@ class RouterTool:
     def get_network_info(self) -> list[dict[str, Any]]:
         """Per-interface network summary (name, status, proto, IP, traffic)."""
         return list(self._context().get("network_summary") or [])
+
+    def get_wifi_info(self) -> dict[str, Any]:
+        """Wireless summary: detected radios and total associated stations."""
+        return dict(self._context().get("wifi_summary") or {})

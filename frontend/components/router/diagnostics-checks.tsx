@@ -69,7 +69,16 @@ export function DiagnosticsChecks({ snapshot, loading = false, error = null }: P
     status: healthStatus,
   });
 
-  const storageMax = Math.max(0, ...snapshot.storage.map((m) => m.use_percent ?? 0));
+  const storageMax = Math.max(
+    0,
+    ...snapshot.storage
+      .filter(
+        (mount) =>
+          !["squashfs", "erofs", "romfs"].includes(mount.filesystem.toLowerCase()) &&
+          mount.mountpoint !== "/rom",
+      )
+      .map((mount) => mount.use_percent ?? 0),
+  );
   const storageCount = snapshot.storage.length;
   checks.push({
     id: "storage",

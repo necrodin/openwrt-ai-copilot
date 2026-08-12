@@ -21,7 +21,7 @@ from app.services.router_snapshot import RouterSnapshot
 
 router = APIRouter(tags=["router"])
 
-_ALL_SECTIONS = ["system", "cpu", "memory", "storage", "network"]
+_ALL_SECTIONS = ["system", "cpu", "memory", "storage", "network", "wifi"]
 
 _diagnosis_engine = RouterDiagnosisEngine()
 _recommendation_engine = RouterRecommendationEngine()

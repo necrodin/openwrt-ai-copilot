@@ -26,6 +26,13 @@ _STORAGE_CRITICAL = 95.0
 _LOAD_WARNING = 1.0  # load_1 at least equal to core count
 _LOAD_CRITICAL = 2.0  # load_1 at least double the core count
 
+#: Filesystem types that are inherently read-only firmware images. Their
+#: capacity is fixed at build time, so reported usage sitting at ~100% is normal
+#: and never means writable free-space exhaustion. Squashfs/erofs/romfs are only
+#: used for the read-only firmware root on OpenWrt; the writable part lives on
+#: the overlay (jffs2/ubifs/ext4/overlayfs), which stays monitored.
+_READONLY_IMAGE_FS = frozenset({"squashfs", "erofs", "romfs"})
+
 _CATEGORY = "router-health"
 
 
@@ -185,6 +192,8 @@ class RouterDiagnosisEngine:
         mounts = snapshot.storage or []
         findings: list[Finding] = []
         for mount in mounts:
+            if _is_readonly_firmware_mount(mount):
+                continue
             use_percent = _num(mount.get("use_percent"))
             mountpoint = mount.get("mountpoint") or "?"
             if use_percent is None:
@@ -320,6 +329,21 @@ def _num(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _is_readonly_firmware_mount(mount: dict) -> bool:
+    """True for a read-only firmware image mount that must not be diagnosed.
+
+    A read-only squashfs/erofs/romfs filesystem (e.g. ``/rom`` on OpenWrt) is a
+    fixed-size image whose 100% usage is expected — there is no writable space
+    to free. The check is based on the filesystem type/capability (and the
+    well-known ``/rom`` firmware mountpoint), never on the device model.
+    """
+    fs_type = str(mount.get("filesystem") or "").lower()
+    if fs_type in _READONLY_IMAGE_FS:
+        return True
+    mountpoint = str(mount.get("mountpoint") or "")
+    return mountpoint == "/rom"
 
 
 def _is_wan(iface: dict) -> bool:

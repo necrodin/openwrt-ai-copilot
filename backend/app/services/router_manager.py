@@ -60,6 +60,7 @@ class RouterManager:
             registry.register("memory", router_tool.get_memory_info)
             registry.register("storage", router_tool.get_storage_info)
             registry.register("network", router_tool.get_network_info)
+            registry.register("wifi", router_tool.get_wifi_info)
         return registry
 
     def register(

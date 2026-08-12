@@ -42,6 +42,21 @@ def test_build_combines_tool_results() -> None:
     assert snapshot.network == [{"name": "br-lan", "up": True, "proto": "static"}]
 
 
+def test_build_includes_wifi_when_requested() -> None:
+    registry = _registry()
+    registry.register(
+        "wifi",
+        lambda: {"radios": [{"name": "radio0", "up": True}], "client_count": 2},
+    )
+    snapshot = _service().build(
+        _executor(registry),
+        "s1",
+        ["system", "wifi"],
+    )
+    assert snapshot.wifi == {"radios": [{"name": "radio0", "up": True}], "client_count": 2}
+    assert snapshot.system == {"hostname": "demo-router", "model": "RT-1"}
+
+
 def test_build_missing_sections_are_none() -> None:
     snapshot = _service().build(_executor(), "s1", ["system"])
     assert snapshot.system is not None
