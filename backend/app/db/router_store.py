@@ -9,15 +9,24 @@ configured. Decrypted values are handed to SSH callers via the record's
 
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from collections.abc import Callable
 
-from app.core.vault import VaultError
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from app.core.vault import ENC_PREFIX, VaultError
 from database.schema.router import RouterRecord, secret_codec
 from database.session import SessionLocal
+
+SessionFactory = Callable[[], Session]
 
 
 class RouterStore:
     """Store for the routers configured through the onboarding wizard."""
+
+    def __init__(self, session_factory: SessionFactory = SessionLocal) -> None:
+        """Bind the store to ``session_factory`` (defaults to the shared engine)."""
+        self._session_factory = session_factory
 
     def _apply(
         self,
@@ -47,8 +56,8 @@ class RouterStore:
     ) -> None:
         if (password or private_key) and secret_codec() is None:
             raise VaultError(
-                "No credential encryption key is configured (AUTH_VAULT_KEY or a "
-                "non-default SECRET_KEY). Set one to save router credentials."
+                "The credential vault is not available. Restart the application "
+                "to re-initialize the router credential vault, then save again."
             )
 
     def save(
@@ -65,7 +74,7 @@ class RouterStore:
     ) -> RouterRecord:
         """Insert a new router connection record."""
         self._assert_encryption_available(password=password, private_key=private_key)
-        with SessionLocal() as session:
+        with self._session_factory() as session:
             record = RouterRecord(
                 name=name,
                 host=host,
@@ -103,7 +112,7 @@ class RouterStore:
         """
         self._assert_encryption_available(password=password, private_key=private_key)
         if router_id is not None:
-            with SessionLocal() as session:
+            with self._session_factory() as session:
                 record = session.get(RouterRecord, router_id)
                 if record is None:
                     raise KeyError(f"router {router_id} does not exist")
@@ -151,11 +160,26 @@ class RouterStore:
 
     def has_credentials(self) -> bool:
         """Return whether any stored router holds a password or private key."""
-        with SessionLocal() as session:
+        with self._session_factory() as session:
             stmt = select(RouterRecord).where(
                 or_(
                     RouterRecord._password.is_not(None),
                     RouterRecord._private_key.is_not(None),
+                )
+            )
+            return session.scalars(stmt).first() is not None
+
+    def has_encrypted_credentials(self) -> bool:
+        """Return whether any stored credential is ciphertext (already encrypted).
+
+        Used to distinguish an encrypted database (whose key is unrecoverable)
+        from a legacy plaintext database (which can be safely migrated).
+        """
+        with self._session_factory() as session:
+            stmt = select(RouterRecord).where(
+                or_(
+                    RouterRecord._password.like(f"{ENC_PREFIX}%"),
+                    RouterRecord._private_key.like(f"{ENC_PREFIX}%"),
                 )
             )
             return session.scalars(stmt).first() is not None
@@ -168,7 +192,7 @@ class RouterStore:
         the number of credential fields encrypted.
         """
         migrated = 0
-        with SessionLocal() as session:
+        with self._session_factory() as session:
             records = list(session.scalars(select(RouterRecord)).all())
             for record in records:
                 for column in ("_password", "_private_key"):
@@ -182,13 +206,13 @@ class RouterStore:
 
     def get_all(self) -> list[RouterRecord]:
         """Return every saved router, most recent first."""
-        with SessionLocal() as session:
+        with self._session_factory() as session:
             stmt = select(RouterRecord).order_by(RouterRecord.created_at.asc())
             return list(session.scalars(stmt).all())
 
     def get_most_recent(self) -> RouterRecord | None:
         """Return the most recently saved router, if any."""
-        with SessionLocal() as session:
+        with self._session_factory() as session:
             stmt = (
                 select(RouterRecord)
                 .order_by(RouterRecord.created_at.desc(), RouterRecord.id.desc())
@@ -198,7 +222,7 @@ class RouterStore:
 
     def delete(self, router_id: int) -> None:
         """Delete a router connection record."""
-        with SessionLocal() as session:
+        with self._session_factory() as session:
             session.query(RouterRecord).filter(RouterRecord.id == router_id).delete()
             session.commit()
 

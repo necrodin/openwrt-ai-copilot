@@ -10,8 +10,12 @@ Covers the AEAD credential vault:
 6. plaintext never appears in logs,
 7. a legacy plaintext database migrates safely,
 8. migration is idempotent,
-9. a missing encryption key fails/warns per the documented policy,
+9. an invalid explicit key raises, and SECRET_KEY/AUTH_VAULT_KEY precedence,
 10. re-onboarding / IP change stays functional with encrypted credentials.
+
+Key *bootstrap* (generation, persistence across restarts, file permissions,
+explicit override, and the unrecoverable-encrypted-database startup error) is
+covered in ``test_vault_bootstrap.py``.
 """
 
 from __future__ import annotations
@@ -28,7 +32,6 @@ from app.core.vault import (
     CredentialVault,
     VaultError,
     build_vault,
-    ensure_credential_vault,
 )
 from app.db.router_store import store as router_store
 from database.schema.router import RouterRecord, configure_secret_codec
@@ -196,28 +199,9 @@ def test_migration_is_idempotent(client: TestClient) -> None:
 # =============================================================================
 
 
-def test_missing_key_without_records_warns_and_allows_demo(client: TestClient, caplog) -> None:
-    settings = SimpleNamespace(auth_vault_key="", secret_key=PLACEHOLDER_SECRET_KEY)
-    with caplog.at_level(logging.WARNING):
-        result = ensure_credential_vault(settings, router_store)
-    assert result is None
-    assert "encryption key" in caplog.text
-
-
-def test_missing_key_with_stored_records_fails_startup(client: TestClient) -> None:
-    configure_secret_codec(None)
-    with SessionLocal() as session:
-        session.add(RouterRecord(name="r", host="10.0.0.1", username="root", password="x"))
-        session.commit()
-
-    settings = SimpleNamespace(auth_vault_key="", secret_key=PLACEHOLDER_SECRET_KEY)
-    with pytest.raises(VaultError, match="AUTH_VAULT_KEY"):
-        ensure_credential_vault(settings, router_store)
-
-
 def test_store_refuses_credentials_without_key(client: TestClient) -> None:
     configure_secret_codec(None)
-    with pytest.raises(VaultError, match="AUTH_VAULT_KEY"):
+    with pytest.raises(VaultError, match="credential vault is not available"):
         router_store.save(name="r", host="10.0.0.1", username="root", password="x")
     assert router_store.get_all() == []
 

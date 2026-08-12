@@ -80,11 +80,12 @@ class Settings(BaseSettings):
     auth_session_ttl: int = 28_800  # 8 hours
 
     # Fernet key used to encrypt router credentials (password / private key) at
-    # rest. Generate one with:
-    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-    # When unset, SECRET_KEY is used as a derivation source only if it differs
-    # from the weak placeholder below. With neither configured, saving router
-    # credentials is refused (and startup fails if any are already stored).
+    # rest. Optional: on first startup a cryptographically random key is
+    # generated and persisted owner-only to ``vault.key`` in the application
+    # data directory, and later restarts reuse it automatically. Set
+    # AUTH_VAULT_KEY to override the generated/derived key explicitly. When
+    # unset, SECRET_KEY (only if it differs from the placeholder below) is used
+    # as a derivation source; with neither configured the key is generated.
     auth_vault_key: str = ""
 
 
