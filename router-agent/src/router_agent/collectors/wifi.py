@@ -173,6 +173,87 @@ def _count_iface_stations(ctx: CollectorContext, ifname: str) -> int:
     return sum(1 for line in output.splitlines() if _STATION_LINE.match(line.strip()))
 
 
+def _parse_station_dump(text: str) -> list[dict[str, Any]]:
+    """Parse ``iw dev <ifname> station dump`` blocks into station dicts.
+
+    Each block starts with ``Station <mac> (on <ifname>)`` followed by
+    indented attribute lines. Only the attributes we surface downstream are
+    captured; anything unrecognized is ignored so foreign iw versions (or
+    output that drifts between kernels) never break station discovery.
+    """
+    stations: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line:
+            continue
+        match = _STATION_LINE.match(line.strip())
+        if match:
+            current = {"mac": match.group(1).lower()}
+            stations.append(current)
+            continue
+        if current is None:
+            continue
+        stripped = line.strip()
+        if ":" not in stripped:
+            continue
+        key, _, value = stripped.partition(":")
+        key, value = key.strip(), value.strip()
+        if key == "signal":
+            # ``signal:         -60 dBm``
+            current["signal"] = _as_int(value.split()[0]) if value else None
+        elif key in ("tx bytes", "rx bytes"):
+            current["tx_bytes" if key == "tx bytes" else "rx_bytes"] = _as_int(value)
+    return stations
+
+
+def _stations_from_live(
+    ctx: CollectorContext,
+    devices: dict[str, dict],
+    ifaces: list[dict],
+    live: dict[str, dict[str, Any]],
+) -> list[WifiClient]:
+    """Per-station client entries from live wireless interfaces via ``iw``.
+
+    Used when ``ubus call wifi status`` is unavailable (the ``wifi`` ubus
+    object is missing on many OpenWrt builds, including the AC2350): the live
+    sysfs discovery already knows the wireless interfaces and their station
+    counts, so the same ``iw`` data is parsed into real :class:`WifiClient`
+    entries. The UCI ``wifi-iface`` sections map each interface back to its
+    SSID when exactly one network maps to that interface.
+    """
+    ifname_ssid: dict[str, str] = {}
+    for iface in ifaces:
+        device = iface.get("device", "")
+        uci_device = _radio_device(devices, device)
+        matched = _matching_live_ifaces(live, uci_device, device, ifaces)
+        ssid = iface.get("ssid")
+        if not ssid:
+            continue
+        for ifname, _info in matched:
+            if ifname in ifname_ssid and ifname_ssid[ifname] != ssid:
+                ifname_ssid[ifname] = ""
+            else:
+                ifname_ssid.setdefault(ifname, ssid)
+
+    clients: list[WifiClient] = []
+    for ifname in live:
+        output = ctx.sh(f"iw dev {ifname} station dump 2>/dev/null", default="")
+        ssid = ifname_ssid.get(ifname)
+        for station in _parse_station_dump(output):
+            clients.append(
+                WifiClient(
+                    mac=station["mac"],
+                    ssid=ssid or None,
+                    signal_dbm=station.get("signal"),
+                    tx_bytes=station.get("tx_bytes"),
+                    rx_bytes=station.get("rx_bytes"),
+                    interface=ifname,
+                )
+            )
+    return clients
+
+
 def _radio_device(devices: dict[str, dict], name: str) -> dict:
     """Resolve a UCI device section by section key or by its ``name``/phy."""
     if name in devices:
@@ -250,6 +331,10 @@ class WifiCollector(Collector):
 
         devices, ifaces = _parse_uci_wireless(ctx.sh("uci show wireless", default=""))
         live = _live_wireless_ifaces(ctx)
+        # Expose the live wireless interface set so downstream consumers (client
+        # medium classification) can tell wireless bridge members from wired ones
+        # from actual device state rather than interface-name guessing.
+        ctx.state["wireless_interfaces"] = list(live.keys())
 
         # Match configured wifi-ifaces to live ubus interfaces by device+ssid so
         # each SSID picks up its real interface name (needed for station counts).
@@ -342,9 +427,10 @@ class WifiCollector(Collector):
         # Fallback: when the live ubus view is unavailable, identify radios from
         # the configured wifi-device sections and the live kernel interfaces.
         if not status:
-            radios.extend(
-                self._radios_from_uci(ctx, devices, ifaces, live, emitted_radios)
-            )
+            radios.extend(self._radios_from_uci(ctx, devices, ifaces, live, emitted_radios))
+            # Also surface the associated stations so the snapshot still knows
+            # exactly which clients are wireless (and online) without ubus.
+            clients.extend(_stations_from_live(ctx, devices, ifaces, live))
 
         for iface in ifaces:
             ssid = iface.get("ssid", "")

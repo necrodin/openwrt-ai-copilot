@@ -596,6 +596,16 @@ def test_wifi_collector_falls_back_to_uci_and_live_interfaces() -> None:
     assert by_ssid["Xiaomi_2G"].interface == "phy1-ap0"
     assert by_ssid["Xiaomi_2G"].client_count == 1
 
+    # Even without ubus, the fallback surfaces the associated stations so the
+    # frontend can classify them as wireless clients.
+    assert len(wifi.clients) == 3
+    by_mac = {client.mac: client for client in wifi.clients}
+    assert by_mac["11:22:33:44:55:66"].interface == "phy0-ap0"
+    assert by_mac["11:22:33:44:55:66"].ssid == "Xiaomi_5G"
+    assert by_mac["aa:bb:cc:dd:ee:ff"].interface == "phy0-ap0"
+    assert by_mac["cc:dd:ee:ff:00:11"].interface == "phy1-ap0"
+    assert by_mac["cc:dd:ee:ff:00:11"].ssid == "Xiaomi_2G"
+
 
 def test_wifi_collector_live_radios_match_by_sysfs_path() -> None:
     """Real AC2350 UCI shape: ``wifi-device`` sections carry a ``path`` and

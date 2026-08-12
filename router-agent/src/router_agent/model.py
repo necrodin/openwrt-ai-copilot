@@ -443,6 +443,12 @@ class DeviceSnapshot(BaseModel):
     clients: list[DhcpLease] = Field(default_factory=list)
     arp: list[ArpEntry] = Field(default_factory=list)
     neighbors: list[NeighborEntry] = Field(default_factory=list)
+    #: Per-MAC connection medium (``wired``/``wireless``/``unknown``), keyed by
+    #: the normalized MAC (lowercase, no separators). Derived by
+    #: :func:`router_agent.client_media.classify_client_media` from the runtime
+    #: station data and bridge topology, so consumers never have to guess from
+    #: interface names alone. Empty when no MAC could be classified.
+    client_media: dict[str, str] = Field(default_factory=dict)
     routing: list[RouteEntry] = Field(default_factory=list)
     vpn: list[VpnTunnel] = Field(default_factory=list)
     dhcp: DhcpInfo = Field(default_factory=DhcpInfo)

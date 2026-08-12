@@ -54,8 +54,8 @@ export type ClientSortKey =
   | "online";
 
 const ARP_REACHABLE = new Set(["complete", "reachable", "REACHABLE"]);
-const WIRELESS_IFACE = /^(wlan|wl|radio|phy|wifi)/i;
-const WIRED_IFACE = /^(eth|en|ppp|wwan|wan|usb|ge?|x?gbe)/i;
+const WIRELESS_IFACE = /^(phy|wlan|wl|wifi|radio|ra|rai)[0-9a-z-]*$/i;
+const WIRED_IFACE = /^(eth|en|ppp|wwan|wan[0-9]?|lan[0-9]|usb|ge?|x?gbe)[0-9a-z.-]*$/i;
 
 function normalizeMac(mac: string | null | undefined): string | null {
   if (!mac) {
@@ -76,17 +76,80 @@ function isLeaseActive(expires: string | null, nowMs: number): boolean {
   return true;
 }
 
-function classifyMedium(inWifi: boolean, iface: string | null): ClientMedium {
+/** Bridge topology lookup derived from the snapshot's network interfaces. */
+type BridgeLookup = {
+  /** Logical interface name -> underlying device (e.g. ``lan`` -> ``br-lan``). */
+  logicalDevice: Map<string, string>;
+  /** Bridge name/device -> member interfaces. */
+  members: Map<string, string[]>;
+};
+
+function buildBridgeLookup(snapshot: DeviceSnapshot): BridgeLookup {
+  const logicalDevice = new Map<string, string>();
+  const members = new Map<string, string[]>();
+  for (const iface of snapshot.network) {
+    if (iface.device) {
+      logicalDevice.set(iface.name, iface.device);
+    }
+    if (!iface.is_bridge && !iface.name.startsWith("br-")) {
+      continue;
+    }
+    const memberList = iface.bridge_members ?? [];
+    if (memberList.length === 0) {
+      continue;
+    }
+    const add = (key: string) => {
+      members.set(key, [...(members.get(key) ?? []), ...memberList]);
+    };
+    add(iface.name);
+    if (iface.device && iface.device !== iface.name) {
+      add(iface.device);
+    }
+  }
+  return { logicalDevice, members };
+}
+
+function memberMedium(member: string): ClientMedium {
+  if (WIRELESS_IFACE.test(member)) {
+    return "wireless";
+  }
+  if (WIRED_IFACE.test(member)) {
+    return "wired";
+  }
+  return "unknown";
+}
+
+function classifyMedium(
+  inWifi: boolean,
+  iface: string | null,
+  bridge: BridgeLookup,
+): ClientMedium {
   if (inWifi) {
     return "wireless";
   }
-  if (iface && WIRELESS_IFACE.test(iface)) {
+  if (!iface) {
+    return "unknown";
+  }
+  if (WIRELESS_IFACE.test(iface)) {
     return "wireless";
   }
-  if (iface && WIRED_IFACE.test(iface)) {
+  if (WIRED_IFACE.test(iface)) {
     return "wired";
   }
-  return iface ? "wired" : "unknown";
+  // The interface is a logical/bridge name (``lan``/``br-lan``) whose actual
+  // medium depends on the bridge members. Never guess wired by default.
+  const resolved = bridge.logicalDevice.get(iface) ?? iface;
+  const memberList = bridge.members.get(resolved) ?? bridge.members.get(iface);
+  if (memberList && memberList.length > 0) {
+    const media = new Set(memberList.map(memberMedium));
+    if (media.size === 1) {
+      const only = [...media][0];
+      if (only === "wireless" || only === "wired") {
+        return only;
+      }
+    }
+  }
+  return "unknown";
 }
 
 type MergeKey =
@@ -121,6 +184,7 @@ export function buildClients(
   const byKey = new Map<string, MergeState>();
   const byIpv4 = new Map<string, string>();
   const byIpv6 = new Map<string, string>();
+  const bridge = buildBridgeLookup(snapshot);
 
   const merge = (
     key: string,
@@ -227,6 +291,8 @@ export function buildClients(
     const leaseExpires = (v.lease_expires as string | null) ?? null;
     const leaseActive =
       v.lease_expires !== undefined ? isLeaseActive(leaseExpires, nowMs) : null;
+    const macKey = normalizeMac(mac);
+    const agentMedium = macKey ? snapshot.client_media?.[macKey] : undefined;
 
     clients.push({
       id: mac ?? ipv4 ?? ipv6 ?? "unknown",
@@ -236,7 +302,8 @@ export function buildClients(
       ipv6,
       interface: (v.interface as string | null) ?? null,
       vendor: null,
-      medium: classifyMedium(inWifi, (v.interface as string | null) ?? null),
+      medium:
+        agentMedium ?? classifyMedium(inWifi, (v.interface as string | null) ?? null, bridge),
       online: inWifi || arpReachable,
       signal_dbm: (v.signal_dbm as number | null) ?? null,
       rx_bytes: (v.rx_bytes as number | null) ?? null,

@@ -477,4 +477,14 @@ def build_simulated_snapshot() -> DeviceSnapshot:
         ),
         errors=[],
     )
+    from router_agent.client_media import classify_client_media
+
+    snapshot.client_media = classify_client_media(
+        leases=snapshot.clients,
+        arp=snapshot.arp,
+        neighbors=snapshot.neighbors,
+        wifi_clients=snapshot.wifi.clients,
+        network=snapshot.network,
+        wireless_interfaces={net.interface for net in snapshot.wifi.networks if net.interface},
+    )
     return snapshot

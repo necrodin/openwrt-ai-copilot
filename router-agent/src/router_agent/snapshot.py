@@ -76,6 +76,18 @@ def build_snapshot(
             wan_interface=raw_status.get("wan_interface"),
         )
 
+    from router_agent.client_media import classify_client_media
+
+    wifi_info = results.get("wifi")
+    client_media = classify_client_media(
+        leases=results.get("clients") if isinstance(results.get("clients"), list) else None,
+        arp=results.get("arp") if isinstance(results.get("arp"), list) else None,
+        neighbors=results.get("neighbors") if isinstance(results.get("neighbors"), list) else None,
+        wifi_clients=(wifi_info.clients if isinstance(wifi_info, WifiInfo) else None),
+        network=results.get("network") if isinstance(results.get("network"), list) else None,
+        wireless_interfaces=ctx.state.get("wireless_interfaces"),
+    )
+
     return DeviceSnapshot(
         meta=meta,
         cpu=results.get("cpu"),
@@ -89,6 +101,7 @@ def build_snapshot(
         clients=results.get("clients", []),
         arp=results.get("arp", []),
         neighbors=results.get("neighbors", []),
+        client_media=client_media,
         routing=results.get("routing", []),
         vpn=results.get("vpn", []),
         dhcp=results.get("dhcp") or DhcpInfo(),

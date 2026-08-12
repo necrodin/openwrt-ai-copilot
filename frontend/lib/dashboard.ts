@@ -372,6 +372,7 @@ export type DeviceSnapshot = {
   kernel: KernelInfo;
   logs: unknown;
   errors: CollectError[];
+  client_media?: Record<string, "wired" | "wireless" | "unknown">;
 };
 
 export type DashboardUpdate = {
