@@ -24,6 +24,10 @@ export function loadDashboardUtilsModule() {
   return jiti(path.join(process.cwd(), "lib/dashboard-utils.ts"));
 }
 
+export function loadDnsUtilsModule() {
+  return jiti(path.join(process.cwd(), "lib/dns-utils.ts"));
+}
+
 /** A syntactically-complete `DeviceSnapshot` the TS logic can consume. */
 export function makeSnapshot(overrides = {}) {
   return {

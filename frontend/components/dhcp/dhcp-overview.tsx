@@ -5,6 +5,7 @@ import { Globe, Network, Server, Timer } from "lucide-react";
 import type { DhcpInfo } from "@/lib/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { activeLeaseCount } from "@/lib/dashboard-utils";
 
 type Props = {
   dhcp: DhcpInfo;
@@ -81,7 +82,7 @@ export function DhcpOverview({ dhcp }: Props) {
           <div className="flex items-center gap-2 text-sm">
             <Timer className="size-4 text-muted-foreground" aria-hidden />
             <span className="text-muted-foreground">Active</span>
-            <span className="font-medium">{dhcp.leases.length} leases</span>
+            <span className="font-medium">{activeLeaseCount(dhcp.leases)} leases</span>
           </div>
         ) : null}
       </div>

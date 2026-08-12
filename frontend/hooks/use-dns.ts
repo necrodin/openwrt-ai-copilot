@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   fetchDnsInfo,
@@ -11,6 +11,7 @@ import {
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useManagementJob } from "@/hooks/use-management-job";
 import { usePolling } from "@/hooks/use-polling";
+import { filterInternalHosts, reconcileUpstream } from "@/lib/dns-utils";
 import type { ConnectionStatus } from "@/lib/dashboard-utils";
 import type { Source } from "@/lib/dashboard";
 
@@ -69,7 +70,19 @@ export function useDns(): DnsDataResult {
   const runner = useManagementJob();
   const [notice, setNotice] = useState<DnsNotice | null>(null);
 
-  const dns = dnsPoll.data;
+  const snapshotDns = update?.snapshot?.network_status?.dns ?? null;
+  const dns = useMemo<DnsInfo | null>(() => {
+    if (!dnsPoll.data) {
+      return null;
+    }
+    const hosts = filterInternalHosts(dnsPoll.data.hosts);
+    return {
+      ...dnsPoll.data,
+      upstream: reconcileUpstream(dnsPoll.data.upstream, snapshotDns),
+      hosts,
+      counts: { ...dnsPoll.data.counts, hosts: hosts.length },
+    };
+  }, [dnsPoll.data, snapshotDns]);
   const updatedAt = dnsPoll.data ? (update?.sent_at ?? null) : null;
   const routerLabel = update?.snapshot
     ? update.snapshot.meta.model || update.snapshot.meta.board || "router"

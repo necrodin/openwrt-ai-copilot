@@ -130,6 +130,63 @@ export function interfaceCidr(iface: NetworkInterface): string | null {
   return `${ipv4.address}/${ipv4.prefix || 24}`;
 }
 
+/**
+ * Numeric lease expiry (dnsmasq epoch seconds) from the raw ``expires`` value.
+ * Returns ``null`` when the value is absent or not a number, so callers never
+ * render a raw epoch as a timestamp.
+ */
+export function leaseExpirySeconds(
+  expires: string | null | undefined,
+): number | null {
+  if (expires === null || expires === undefined) {
+    return null;
+  }
+  const seconds = Number(expires);
+  return Number.isFinite(seconds) ? seconds : null;
+}
+
+/**
+ * Human-readable lease expiry (or ``null`` when unparseable).
+ */
+export function formatLeaseExpiry(
+  expires: string | null | undefined,
+): string | null {
+  const seconds = leaseExpirySeconds(expires);
+  if (seconds === null) {
+    return null;
+  }
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Number of currently-active leases: an unexpired lease (expiry in the future)
+ * or a lease without a numeric expiry (assumed present, matching the client
+ * inventory semantics in ``lib/clients.ts``).
+ */
+export function activeLeaseCount(
+  leases: readonly { expires?: string | null }[],
+  nowMs?: number,
+): number {
+  const now = (nowMs ?? Date.now()) / 1000;
+  return leases.filter((lease) => {
+    const seconds = leaseExpirySeconds(lease.expires);
+    if (seconds === null) {
+      return true;
+    }
+    return seconds > now;
+  }).length;
+}
+
 export function formatClock(iso: string | null | undefined): string {
   if (!iso) {
     return "—";

@@ -1926,3 +1926,220 @@ def test_network_collector_dns_prefers_netifd_over_resolv_conf() -> None:
     )
     NetworkCollector().collect(ctx)
     assert ctx.state["network_status"]["dns"] == ["192.168.1.1"]
+
+
+# --------------------------------------------------------------------------- #
+# DHCP lease-file fallback, deduplication and range/DNS parsing                #
+# --------------------------------------------------------------------------- #
+
+
+def test_dhcp_collector_leases_fallback_to_lease_file() -> None:
+    """``ubus call dhcp leases`` is missing on some dnsmasq builds (the AC2350
+    returns "Method not found"); the collector must fall back to the dnsmasq
+    lease file so the DHCP page never shows a false empty lease list."""
+    ctx = make_context(
+        {
+            "uci show dhcp": (
+                "dhcp.@dnsmasq[0]=dnsmasq\n"
+                "dhcp.@dnsmasq[0].enable_dnsmasq='1'\n"
+                "dhcp.lan=dhcp\n"
+                "dhcp.lan.interface='lan'\n"
+                "dhcp.lan.start='100'\n"
+                "dhcp.lan.limit='150'\n"
+            ),
+            "cat /tmp/dhcp.leases 2>/dev/null": (
+                "1786600513 e2:04:61:0e:d7:82 192.168.100.102 Redmi-Note-14 01:e2:04:61:0e:d7:82\n"
+                "1786592633 88:e9:fe:64:fc:5c 192.168.100.215 Talats-MBP 01:88:e9:fe:64:fc:5c\n"
+            ),
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    assert len(info.leases) == 2
+    first = info.leases[0]
+    assert first.hostname == "Redmi-Note-14"
+    assert first.mac == "e2:04:61:0e:d7:82"
+    assert first.ip == "192.168.100.102"
+    assert first.expires == "1786600513"  # epoch preserved, not reformatted
+
+
+def test_dhcp_collector_lease_file_asterisk_hostname_and_expiry() -> None:
+    """A ``*`` hostname (client sent no name) renders as empty, and a numeric
+    expiry is kept so consumers can distinguish active vs stale leases."""
+    ctx = make_context(
+        {
+            "uci show dhcp": "dhcp.@dnsmasq[0]=dnsmasq\n",
+            "cat /tmp/dhcp.leases 2>/dev/null": (
+                "1786600513 aa:bb:cc:11:22:33 192.168.100.50 * 01:aa:bb:cc:11:22:33\n"
+            ),
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    lease = info.leases[0]
+    assert lease.hostname == ""
+    assert lease.expires == "1786600513"
+    assert lease.ip == "192.168.100.50"
+
+
+def test_dhcp_collector_lease_deduplication() -> None:
+    """A device appearing twice (e.g. stale entry after an IP change) collapses
+    to a single lease; the newest (largest expiry) wins."""
+    ctx = make_context(
+        {
+            "uci show dhcp": "dhcp.@dnsmasq[0]=dnsmasq\n",
+            "cat /tmp/dhcp.leases 2>/dev/null": (
+                "1786590000 88:e9:fe:64:fc:5c 192.168.100.215 old-ip 01:88:e9:fe:64:fc:5c\n"
+                "1786600000 88:e9:fe:64:fc:5c 192.168.100.58 new-ip 01:88:e9:fe:64:fc:5c\n"
+            ),
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    assert len(info.leases) == 1
+    assert info.leases[0].ip == "192.168.100.58"
+    assert info.leases[0].expires == "1786600000"
+
+
+def test_dhcp_collector_lease_dedup_keeps_ubus_when_available() -> None:
+    """ubus leases are preferred and deduplicated the same way."""
+    ctx = make_context(
+        {
+            "uci show dhcp": "dhcp.@dnsmasq[0]=dnsmasq\n",
+            "ubus call dhcp leases": json.dumps(
+                {
+                    "leases": [
+                        {
+                            "hostname": "tv",
+                            "ip": "192.168.1.120",
+                            "mac": "aa:bb:cc:00:00:01",
+                            "expires": 100,
+                        },
+                        {
+                            "hostname": "tv",
+                            "ip": "192.168.1.121",
+                            "mac": "aa:bb:cc:00:00:01",
+                            "expires": 200,
+                        },
+                    ]
+                }
+            ),
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    assert len(info.leases) == 1
+    assert info.leases[0].ip == "192.168.1.121"
+    assert info.leases[0].expires == "200"
+
+
+def test_clients_collector_falls_back_to_lease_file() -> None:
+    """The clients collector shares the same fallback, so ``snapshot.clients``
+    stays populated on firmware without the dhcp ubus leases method."""
+    ctx = make_context(
+        {
+            "cat /tmp/dhcp.leases 2>/dev/null": (
+                "1786600513 aa:bb:cc:11:22:33 192.168.100.50 laptop 01:aa:bb:cc:11:22:33\n"
+            )
+        }
+    )
+    clients = ClientsCollector().collect(ctx)
+    assert clients[0].hostname == "laptop"
+    assert clients[0].mac == "aa:bb:cc:11:22:33"
+
+
+def test_dhcp_collector_pool_offset_range_resolution() -> None:
+    """UCI ``start`` may be an offset (``100``); with the interface subnet from
+    the live network dump the pool range resolves to real addresses."""
+    ctx = make_context(
+        {
+            "uci show dhcp": (
+                "dhcp.@dnsmasq[0]=dnsmasq\n"
+                "dhcp.lan=dhcp\n"
+                "dhcp.lan.interface='lan'\n"
+                "dhcp.lan.start='100'\n"
+                "dhcp.lan.limit='150'\n"
+            ),
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "lan",
+                            "up": True,
+                            "device": "br-lan",
+                            "ipv4-address": [{"address": "192.168.100.1", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+            "cat /tmp/dhcp.leases 2>/dev/null": "",
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    pool = info.pools[0]
+    assert pool.start == "192.168.100.100"
+    assert pool.range_end == "192.168.100.249"
+
+
+def test_dhcp_collector_pool_full_ip_range_when_start_is_absolute() -> None:
+    """A full IPv4 ``start`` still resolves without needing the subnet."""
+    ctx = make_context(
+        {
+            "uci show dhcp": (
+                "dhcp.@dnsmasq[0]=dnsmasq\n"
+                "dhcp.lan=dhcp\n"
+                "dhcp.lan.interface='lan'\n"
+                "dhcp.lan.start='192.168.50.10'\n"
+                "dhcp.lan.limit='20'\n"
+            ),
+            "cat /tmp/dhcp.leases 2>/dev/null": "",
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    pool = info.pools[0]
+    assert pool.start == "192.168.50.10"
+    assert pool.range_end == "192.168.50.29"
+
+
+def test_dhcp_collector_pool_level_dhcp_option() -> None:
+    """``dhcp_option`` (gateway=3 / DNS=6) may live on the dhcp pool section
+    (LuCI stores it there); both dnsmasq- and pool-level options must parse."""
+    ctx = make_context(
+        {
+            "uci show dhcp": (
+                "dhcp.@dnsmasq[0]=dnsmasq\n"
+                "dhcp.@dnsmasq[0].domain='lan'\n"
+                "dhcp.lan=dhcp\n"
+                "dhcp.lan.interface='lan'\n"
+                "dhcp.lan.dhcp_option='3,192.168.100.1'\n"
+                "dhcp.lan.dhcp_option='6,192.168.100.1,1.1.1.1'\n"
+            ),
+            "cat /tmp/dhcp.leases 2>/dev/null": "",
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    assert info.gateway == "192.168.100.1"
+    assert info.dns == ["192.168.100.1", "1.1.1.1"]
+    assert info.domain == "lan"
+
+
+def test_dhcp_collector_dnsmasq_level_dhcp_option_still_parses() -> None:
+    """Global dnsmasq-level dhcp_option continues to work (legacy shape)."""
+    ctx = make_context(
+        {
+            "uci show dhcp": (
+                "dhcp.@dnsmasq[0]=dnsmasq\n"
+                "dhcp.@dnsmasq[0].dhcp_option='3,192.168.1.1'\n"
+                "dhcp.@dnsmasq[0].dhcp_option='6,8.8.8.8,8.8.4.4'\n"
+            ),
+            "cat /tmp/dhcp.leases 2>/dev/null": "",
+        }
+    )
+    info = DhcpCollector().collect(ctx)
+    assert info.gateway == "192.168.1.1"
+    assert info.dns == ["8.8.8.8", "8.8.4.4"]
+
+
+def test_dhcp_collector_no_leases_no_network_no_error() -> None:
+    """No lease source and no network dump must produce empty results, not an
+    exception or fabricated data."""
+    ctx = make_context({"uci show dhcp": "dhcp.@dnsmasq[0]=dnsmasq\n"})
+    info = DhcpCollector().collect(ctx)
+    assert info.leases == []
+    assert info.pools == []

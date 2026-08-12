@@ -7,25 +7,52 @@ import type { DhcpLease } from "@/lib/dashboard";
 import { EmptyState } from "@/components/dashboard/widget";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { formatLeaseExpiry, leaseExpirySeconds } from "@/lib/dashboard-utils";
 
 type Props = {
   leases: DhcpLease[];
 };
 
+function LeaseExpiry({ expires, nowMs }: { expires: string | null; nowMs: number }) {
+  const seconds = leaseExpirySeconds(expires);
+  if (seconds === null) {
+    return <span>{expires ?? "—"}</span>;
+  }
+  const expired = seconds * 1000 <= nowMs;
+  return (
+    <span className={cn("tabular-nums", expired && "font-medium text-destructive")}>
+      {formatLeaseExpiry(expires)}
+      {expired ? " · expired" : ""}
+    </span>
+  );
+}
+
 export function DhcpLeases({ leases }: Props) {
   const [search, setSearch] = useState("");
+  const nowMs = useMemo(() => Date.now(), []);
 
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) {
-      return leases;
-    }
-    return leases.filter((lease) =>
-      [lease.hostname, lease.ip, lease.mac, lease.interface]
-        .filter(Boolean)
-        .some((value) => value?.toLowerCase().includes(needle)),
-    );
-  }, [leases, search]);
+    const matches = needle
+      ? leases.filter((lease) =>
+          [lease.hostname, lease.ip, lease.mac, lease.interface]
+            .filter(Boolean)
+            .some((value) => value?.toLowerCase().includes(needle)),
+        )
+      : [...leases];
+    // Active (unexpired) leases first, then by soonest expiry; expired last.
+    return matches.sort((a, b) => {
+      const ea = leaseExpirySeconds(a.expires);
+      const eb = leaseExpirySeconds(b.expires);
+      const activeA = ea === null || ea * 1000 > nowMs ? 0 : 1;
+      const activeB = eb === null || eb * 1000 > nowMs ? 0 : 1;
+      if (activeA !== activeB) {
+        return activeA - activeB;
+      }
+      return (ea ?? 0) - (eb ?? 0);
+    });
+  }, [leases, search, nowMs]);
 
   return (
     <div className="space-y-3">
@@ -78,7 +105,9 @@ export function DhcpLeases({ leases }: Props) {
                   <td className="px-3 py-2 font-medium">{lease.hostname || "—"}</td>
                   <td className="px-3 py-2 font-mono text-xs">{lease.ip}</td>
                   <td className="px-3 py-2 font-mono text-xs">{lease.mac ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{lease.expires ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                    <LeaseExpiry expires={lease.expires} nowMs={nowMs} />
+                  </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{lease.interface ?? "—"}</td>
                 </tr>
               ))}

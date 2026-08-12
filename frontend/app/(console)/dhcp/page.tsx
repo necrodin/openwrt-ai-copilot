@@ -12,7 +12,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, type StatusBadgeTone } from "@/components/ui/status-badge";
 import { useDhcp } from "@/hooks/use-dhcp";
-import { formatClock, sourceLabel, type ConnectionStatus } from "@/lib/dashboard-utils";
+import {
+  activeLeaseCount,
+  formatClock,
+  sourceLabel,
+  type ConnectionStatus,
+} from "@/lib/dashboard-utils";
 import { listConnections, type SavedRouter } from "@/lib/onboarding";
 
 function connectionBadge(status: ConnectionStatus): { label: string; tone: StatusBadgeTone } {
@@ -178,7 +183,8 @@ export default function DhcpPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Active Leases</h2>
               <span className="text-xs text-muted-foreground">
-                {dhcp.leases.length} active
+                {activeLeaseCount(dhcp.leases)} active of {dhcp.leases.length} lease
+                {dhcp.leases.length === 1 ? "" : "s"}
               </span>
             </div>
             <DhcpLeases leases={dhcp.leases} />
