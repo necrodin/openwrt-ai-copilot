@@ -111,6 +111,17 @@ export function interfaceAddresses(
     .map((address) => address.address);
 }
 
+/**
+ * Honest label for the router's WAN IPv4 address. Only an address with
+ * evidence of being globally public (``is_public === true``) is labelled
+ * "Public IP"; a private/carrier-NAT/LAN address is simply the router's
+ * assigned "WAN IP". Unknown stays conservative ("WAN IP") — we never claim
+ * publicness we cannot prove.
+ */
+export function wanAddressLabel(isPublic: boolean | null | undefined): string {
+  return isPublic === true ? "Public IP" : "WAN IP";
+}
+
 export function interfaceCidr(iface: NetworkInterface): string | null {
   const ipv4 = iface.addresses.find((address) => address.family === "ipv4" && address.address);
   if (!ipv4) {

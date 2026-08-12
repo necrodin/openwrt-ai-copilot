@@ -5,11 +5,7 @@ import { Globe } from "lucide-react";
 import type { NetworkInterface } from "@/lib/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  formatBytes,
-  formatDuration,
-  interfaceAddresses,
-} from "@/lib/dashboard-utils";
+import { formatBytes, formatDuration, wanAddressLabel } from "@/lib/dashboard-utils";
 
 type Props = {
   wan: NetworkInterface | null;
@@ -26,7 +22,9 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 }
 
 export function NetworkWan({ wan, dns }: Props) {
-  const publicIp = wan ? interfaceAddresses(wan, "ipv4")[0] ?? null : null;
+  const wanIpv4 = wan
+    ? wan.addresses.find((address) => address.family === "ipv4" && address.address) ?? null
+    : null;
 
   return (
     <Card>
@@ -45,7 +43,7 @@ export function NetworkWan({ wan, dns }: Props) {
         <div className="space-y-1">
           <Row label="Interface" value={wan?.name ?? null} />
           <Row label="Protocol" value={wan?.proto ?? null} />
-          <Row label="Public IP" value={publicIp} />
+          <Row label={wanAddressLabel(wanIpv4?.is_public ?? null)} value={wanIpv4?.address ?? null} />
           <Row label="Gateway" value={wan?.gateway ?? null} />
           <Row label="DNS" value={dns.join(", ") || null} />
           <Row

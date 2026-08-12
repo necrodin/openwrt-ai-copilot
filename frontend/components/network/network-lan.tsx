@@ -12,6 +12,8 @@ type Props = {
   lan: NetworkInterface | null;
   leases: DhcpLease[];
   dhcpEnabled: boolean;
+  /** Currently-online LAN clients; null when the snapshot cannot determine it. */
+  connectedClients?: number | null;
 };
 
 function Row({ label, value }: { label: string; value: string | null | undefined }) {
@@ -23,13 +25,19 @@ function Row({ label, value }: { label: string; value: string | null | undefined
   );
 }
 
-export function NetworkLan({ lan, leases, dhcpEnabled }: Props) {
+export function NetworkLan({ lan, leases, dhcpEnabled, connectedClients }: Props) {
   const ipv4 = lan
     ? lan.addresses.find((address) => address.family === "ipv4" && address.address)
     : null;
   const mask = lan?.addresses.some((a) => a.family === "ipv4")
     ? ipv4PrefixToNetmask(ipv4?.prefix ?? 0)
     : null;
+  const clientCount =
+    connectedClients !== undefined
+      ? connectedClients === null
+        ? "Unknown"
+        : String(connectedClients)
+      : String(leases.length);
 
   return (
     <Card>
@@ -50,7 +58,7 @@ export function NetworkLan({ lan, leases, dhcpEnabled }: Props) {
           <Row label="Address" value={ipv4?.address ?? null} />
           <Row label="Netmask" value={lan ? mask : null} />
           <Row label="DHCP" value={dhcpEnabled ? "Enabled" : "Disabled"} />
-          <Row label="Connected clients" value={String(leases.length)} />
+          <Row label="Connected clients" value={clientCount} />
         </div>
         {lan && lan.bridge_members.length > 0 ? (
           <div className="pt-2">

@@ -21,6 +21,7 @@ Field names differ too (``macaddr`` vs ``macaddress``, ``carrier`` vs ``link``,
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from typing import Any
 
@@ -30,6 +31,23 @@ from router_agent.model import WAN_PROTOS, NetworkAddress, NetworkInterface
 _VLAN = re.compile(r"^(.+)\.(\d+)$")
 
 
+def _is_public(address: str) -> bool | None:
+    """Return whether ``address`` is globally routable per RFC allocations.
+
+    ``True`` only when the address is genuinely public (globally reachable).
+    RFC1918/CGNAT/link-local/loopback/reserved/unique-local/documentation
+    addresses are ``False``. ``None`` when the address cannot be parsed — the
+    caller must never guess "public" from an unparseable value.
+    """
+    if not address:
+        return None
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return None
+    return bool(ip.is_global)
+
+
 def _address(entry: dict) -> NetworkAddress:
     addr = entry.get("address") or ""
     family = "ipv6" if ":" in addr else "ipv4"
@@ -37,6 +55,7 @@ def _address(entry: dict) -> NetworkAddress:
         address=addr,
         prefix=int(entry.get("mask") or entry.get("masklen") or 0),
         family=family,
+        is_public=_is_public(addr),
     )
 
 
@@ -237,7 +256,9 @@ class NetworkCollector(Collector):
 
         gateway, route_device = self._default_route(ctx)
         self._attach_gateway(ctx, result, gateway, route_device)
-        self._state_for_snapshot(ctx, result, gateway, route_device)
+        self._state_for_snapshot(
+            ctx, result, gateway, route_device, netifd_dns=self._interface_dns(dump)
+        )
         return result
 
     def _fallback_ip(self, ctx: CollectorContext) -> list[NetworkInterface]:
@@ -297,10 +318,40 @@ class NetworkCollector(Collector):
         return None, None
 
     @staticmethod
+    def _interface_dns(dump: Any) -> list[str]:
+        """DNS resolvers netifd assigned to each interface (``dns-server``).
+
+        Modern netifd reports the servers learned per interface (DHCP/PPPoE/
+        DHCPv6) directly in ``ubus call network.interface dump`` — IPv4 and IPv6
+        alike. This is the authoritative upstream resolver set; resolv.conf is
+        only a rendering of it (plus a loopback dnsmasq stub).
+        """
+        servers: list[str] = []
+        if not isinstance(dump, dict):
+            return servers
+        interfaces = dump.get("interface")
+        if not isinstance(interfaces, list):
+            return servers
+        for entry in interfaces:
+            if not isinstance(entry, dict):
+                continue
+            for server in entry.get("dns-server") or []:
+                if isinstance(server, str) and server and server not in servers:
+                    servers.append(server)
+        return servers
+
+    @staticmethod
     def _dns_servers(ctx: CollectorContext) -> list[str]:
+        """Resolvers from resolv.conf files (fallback when netifd exposes none).
+
+        ``/etc/resolv.conf`` plus the per-interface files under
+        ``/tmp/resolv.conf.d/``. The trailing ``|| true`` keeps a non-matching
+        glob (e.g. no ``*.conf`` file on a given firmware) from failing the
+        whole command — a missing file must not silently erase DNS.
+        """
         raw = ctx.sh(
             "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
-            "/tmp/resolv.conf.d/*.conf 2>/dev/null",
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null || true",
             default="",
         )
         servers: list[str] = []
@@ -329,6 +380,7 @@ class NetworkCollector(Collector):
         interfaces: list[NetworkInterface],
         gateway: str | None,
         device: str | None,
+        netifd_dns: list[str] | None = None,
     ) -> None:
         wan_interface = device
         if wan_interface is None:
@@ -336,8 +388,9 @@ class NetworkCollector(Collector):
                 (i.name for i in interfaces if i.proto in WAN_PROTOS), None
             )
             wan_interface = wan_name
+        dns = netifd_dns if netifd_dns else self._dns_servers(ctx)
         ctx.state["network_status"] = {
             "gateway": gateway,
-            "dns": self._dns_servers(ctx),
+            "dns": dns,
             "wan_interface": wan_interface,
         }

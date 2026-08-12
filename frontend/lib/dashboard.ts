@@ -50,6 +50,11 @@ export type NetworkAddress = {
   address: string;
   prefix: number;
   family: "ipv4" | "ipv6";
+  /**
+   * True when the address is globally routable per RFC allocations (not
+   * RFC1918/CGNAT/link-local/reserved). Null when it could not be determined.
+   */
+  is_public?: boolean | null;
 };
 
 export type NetworkInterface = {

@@ -5,6 +5,7 @@ import type {
   NeighborEntry,
   WifiClient,
 } from "@/lib/dashboard";
+import { isWan } from "@/lib/dashboard-utils";
 
 export type ClientConnection = "online" | "offline";
 
@@ -248,6 +249,7 @@ export function buildClients(
         tx_bytes: client.tx_bytes,
         connected_minutes: client.connected_minutes,
         ssid: client.ssid,
+        interface: client.interface,
       });
     }
   }
@@ -402,4 +404,122 @@ export function sortClients(clients: NetworkClient[], key: ClientSortKey): Netwo
       break;
   }
   return sorted;
+}
+
+// --------------------------------------------------------------------------- #
+// LAN connected-client count                                                   #
+// --------------------------------------------------------------------------- #
+
+type LanSubnet = { base: string; prefix: number };
+
+/** LAN interfaces (names/devices/members) and IPv4 subnets, never hardcoded. */
+type LanTopology = { interfaces: Set<string>; subnets: LanSubnet[] };
+
+/**
+ * Identify the LAN/local side of the topology from the snapshot's interfaces.
+ *
+ * Everything that is not a WAN/uplink (``isWan`` by proto/name, or the uplink
+ * device itself) is LAN: the LAN bridge and its members (wired switch ports and
+ * the wireless APs attached to the bridge) plus their IPv4 subnets. Bridge and
+ * interface names are never hardcoded.
+ */
+function identifyLan(snapshot: DeviceSnapshot): LanTopology {
+  const interfaces = new Set<string>();
+  const subnets: LanSubnet[] = [];
+  const wanDevice = snapshot.network_status?.wan_interface ?? null;
+  for (const iface of snapshot.network) {
+    if (iface.device === wanDevice || isWan(iface)) {
+      continue;
+    }
+    interfaces.add(iface.name);
+    if (iface.device) {
+      interfaces.add(iface.device);
+    }
+    for (const member of iface.bridge_members ?? []) {
+      interfaces.add(member);
+    }
+    for (const address of iface.addresses) {
+      if (
+        address.family === "ipv4" &&
+        address.address &&
+        address.prefix > 0 &&
+        address.prefix <= 32
+      ) {
+        subnets.push({ base: address.address, prefix: address.prefix });
+      }
+    }
+  }
+  return { interfaces, subnets };
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+  let value = 0;
+  for (const part of parts) {
+    const octet = Number.parseInt(part, 10);
+    if (!Number.isInteger(octet) || octet < 0 || octet > 255) {
+      return null;
+    }
+    value = value * 256 + octet;
+  }
+  return value;
+}
+
+function ipv4InSubnet(ip: string | null, subnet: LanSubnet): boolean {
+  if (!ip || ip.includes(":") || subnet.prefix <= 0) {
+    return false;
+  }
+  const address = ipv4ToInt(ip);
+  const base = ipv4ToInt(subnet.base);
+  if (address === null || base === null) {
+    return false;
+  }
+  const mask = (~0 << (32 - subnet.prefix)) >>> 0;
+  return (address & mask) === (base & mask);
+}
+
+/**
+ * Number of currently-online clients belonging to the LAN/local network.
+ *
+ * "Online" matches the Clients page: a device is online when it is an
+ * associated WiFi station or has a reachable (complete) ARP entry — an
+ * unexpired DHCP lease alone does not mean the device is present right now.
+ * LAN membership is derived from the live interface topology and LAN subnets,
+ * so wireless clients attached through the LAN bridge count and WAN/uplink
+ * neighbors (upstream router, WAN-side hosts) never do. Clients merged across
+ * sources (DHCP, ARP, WiFi, IPv6 neighbors) are counted once per device.
+ *
+ * Returns ``null`` ("Unknown") when the snapshot cannot reliably determine the
+ * count: clients exist but no online signal (no ARP table, no WiFi stations)
+ * is present to say which are online, or the LAN side cannot be identified.
+ */
+export function countOnlineLanClients(
+  snapshot: DeviceSnapshot | null,
+  nowIso: string | null,
+): number | null {
+  if (snapshot === null) {
+    return null;
+  }
+  const clients = buildClients(snapshot, nowIso);
+  if (clients.length === 0) {
+    return 0;
+  }
+  const lan = identifyLan(snapshot);
+  if (lan.interfaces.size === 0 && lan.subnets.length === 0) {
+    return null;
+  }
+  const hasOnlineSignal =
+    (snapshot.arp?.length ?? 0) > 0 || (snapshot.wifi?.clients?.length ?? 0) > 0;
+  if (!hasOnlineSignal) {
+    return null;
+  }
+  return clients.filter(
+    (client) =>
+      client.online &&
+      (lan.interfaces.has(client.interface ?? "") ||
+        lan.subnets.some((subnet) => ipv4InSubnet(client.ipv4, subnet))),
+  ).length;
 }

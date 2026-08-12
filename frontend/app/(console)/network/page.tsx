@@ -37,6 +37,7 @@ export default function NetworkPage() {
     networkStatus,
     routing,
     leases,
+    lanClientCount,
     zones,
     dhcpEnabled,
     hostname,
@@ -220,6 +221,7 @@ export default function NetworkPage() {
                 lan={lan}
                 leases={leases}
                 dhcpEnabled={dhcpEnabled}
+                connectedClients={lanClientCount}
               />
             </div>
           </section>

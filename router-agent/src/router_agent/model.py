@@ -71,6 +71,9 @@ class NetworkAddress(BaseModel):
     address: str
     prefix: int = 0
     family: Literal["ipv4", "ipv6"]
+    #: True when the address is globally routable per RFC allocations (not
+    #: RFC1918/CGNAT/link-local/reserved). None when it could not be determined.
+    is_public: bool | None = None
 
 
 class NetworkInterface(BaseModel):

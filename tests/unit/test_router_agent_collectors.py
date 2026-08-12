@@ -1746,3 +1746,183 @@ def test_dhcp_collector_named_sections() -> None:
     lease = info.static_leases[0]
     assert lease.hostname == "printer"
     assert lease.ip == "192.168.1.99"
+
+
+# --------------------------------------------------------------------------- #
+# WAN IP vs Public IP semantics + netifd dns-server parsing                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_network_address_private_wan_is_not_public() -> None:
+    """The real AC2350 WAN (192.168.1.121) is a private/CGNAT address — never
+    labelled "Public IP". ``is_public`` must be False for RFC1918 space."""
+    from router_agent.collectors.network import _is_public
+
+    assert _is_public("192.168.1.121") is False
+    assert _is_public("192.168.1.1") is False
+    assert _is_public("10.0.0.2") is False
+    assert _is_public("100.64.0.1") is False  # CGNAT
+    assert _is_public("fe80::2aa:bbff:fe01:2340") is False  # link-local
+
+
+def test_network_address_genuinely_public_is_public() -> None:
+    """A genuinely globally-routable address must be labelled public."""
+    from router_agent.collectors.network import _is_public
+
+    assert _is_public("8.8.8.8") is True
+    assert _is_public("1.1.1.1") is True
+    assert _is_public("2001:4860:4860::8888") is True
+
+
+def test_network_address_unparseable_neither_public_nor_private() -> None:
+    """An unparseable address must never be guessed "public" — ``None``."""
+    from router_agent.collectors.network import _is_public
+
+    assert _is_public("") is None
+    assert _is_public("not-an-ip") is None
+    assert _is_public("999.1.1.1") is None
+
+
+def test_network_collector_marks_is_public_on_interfaces() -> None:
+    """The collector annotates every address with its public/private status."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                            "ipv4-address": [{"address": "192.168.1.121", "mask": 24}],
+                            "ipv6-address": [],
+                            "dns-server": ["192.168.1.1"],
+                        },
+                        {
+                            "interface": "wan2",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.3",
+                            "ipv4-address": [{"address": "8.8.8.8", "mask": 24}],
+                            "ipv6-address": [],
+                        },
+                    ]
+                }
+            ),
+            "ubus call network.device status": json.dumps({"eth0.2": {}, "eth0.3": {}}),
+        }
+    )
+    interfaces = NetworkCollector().collect(ctx)
+    by_name = {i.name: i for i in interfaces}
+    assert by_name["wan"].addresses[0].is_public is False
+    assert by_name["wan2"].addresses[0].is_public is True
+
+
+def test_network_collector_dns_from_netifd_dns_server() -> None:
+    """Netifd's authoritative per-interface ``dns-server`` list is used for the
+    snapshot DNS (IPv4 and IPv6 upstream resolvers), not resolv.conf."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                            "ipv4-address": [{"address": "192.168.1.121", "mask": 24}],
+                            "ipv6-address": [],
+                            "dns-server": [
+                                "192.168.1.1",
+                                "fe80::2aa:bbff:fe01:2340",
+                            ],
+                        }
+                    ]
+                }
+            ),
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
+                "nameserver 127.0.0.1\n"  # loopback dnsmasq stub
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["dns"] == [
+        "192.168.1.1",
+        "fe80::2aa:bbff:fe01:2340",
+    ]
+
+
+def test_network_collector_dns_fallback_to_resolv_conf() -> None:
+    """When netifd exposes no ``dns-server``, resolv.conf (upstream .auto files)
+    still yields the real DNS so the display never goes empty."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                        }
+                    ]
+                }
+            ),
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
+                "nameserver 127.0.0.1\n"
+                "# Interface wan\nnameserver 192.168.1.1\n"
+                "nameserver 1.1.1.1\n"
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["dns"] == ["127.0.0.1", "192.168.1.1", "1.1.1.1"]
+
+
+def test_network_collector_dns_missing_glob_does_not_erase_dns() -> None:
+    """A non-matching ``/tmp/resolv.conf.d/*.conf`` glob must not fail the fallback
+    command (``|| true``) — otherwise a missing file would silently drop DNS."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
+                "nameserver 8.8.4.4\n"
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["dns"] == ["8.8.4.4"]
+
+
+def test_network_collector_dns_prefers_netifd_over_resolv_conf() -> None:
+    """netifd dns-server wins even when resolv.conf reports only the loopback
+    dnsmasq stub (the real-life AC2350 shape)."""
+    ctx = make_context(
+        {
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wan",
+                            "up": True,
+                            "proto": "dhcp",
+                            "device": "eth0.2",
+                            "dns-server": ["192.168.1.1"],
+                        }
+                    ]
+                }
+            ),
+            "cat /etc/resolv.conf 2>/dev/null; cat /tmp/resolv.conf.d/*.auto "
+            "/tmp/resolv.conf.d/*.conf 2>/dev/null": (
+                "nameserver 127.0.0.1\n"
+            ),
+        }
+    )
+    NetworkCollector().collect(ctx)
+    assert ctx.state["network_status"]["dns"] == ["192.168.1.1"]

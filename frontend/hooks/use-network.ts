@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useManagementJob } from "@/hooks/use-management-job";
+import { countOnlineLanClients } from "@/lib/clients";
 import type { ConnectionStatus } from "@/lib/dashboard-utils";
 import type {
   DhcpLease,
@@ -22,6 +23,7 @@ export type NetworkDataResult = {
   networkStatus: NetworkStatus | null;
   routing: RouteEntry[];
   leases: DhcpLease[];
+  lanClientCount: number | null;
   zones: FirewallZone[];
   dhcpEnabled: boolean;
   hostname: string;
@@ -73,6 +75,7 @@ export function useNetwork(): NetworkDataResult {
   const dhcpEnabled = snapshot?.dhcp?.enabled ?? false;
   const hostname = snapshot?.kernel.hostname ?? "";
   const updatedAt = update?.sent_at ?? null;
+  const lanClientCount = countOnlineLanClients(snapshot, updatedAt);
 
   const routerLabel = snapshot
     ? snapshot.meta.model || snapshot.meta.board || "router"
@@ -134,6 +137,7 @@ export function useNetwork(): NetworkDataResult {
     networkStatus,
     routing,
     leases,
+    lanClientCount,
     zones,
     dhcpEnabled,
     hostname,
