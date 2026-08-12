@@ -28,6 +28,10 @@ export function loadDnsUtilsModule() {
   return jiti(path.join(process.cwd(), "lib/dns-utils.ts"));
 }
 
+export function loadFirewallUtilsModule() {
+  return jiti(path.join(process.cwd(), "lib/firewall-utils.ts"));
+}
+
 /** A syntactically-complete `DeviceSnapshot` the TS logic can consume. */
 export function makeSnapshot(overrides = {}) {
   return {

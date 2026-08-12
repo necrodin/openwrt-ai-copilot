@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   fetchFirewallInfo,
@@ -11,6 +11,7 @@ import {
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import { useManagementJob } from "@/hooks/use-management-job";
 import { usePolling } from "@/hooks/use-polling";
+import { mergeZoneNetworks, sanitizeVersion } from "@/lib/firewall-utils";
 import type { ConnectionStatus } from "@/lib/dashboard-utils";
 import type { Source } from "@/lib/dashboard";
 
@@ -62,7 +63,18 @@ export function useFirewall(): FirewallDataResult {
   const runner = useManagementJob();
   const [notice, setNotice] = useState<FirewallNotice | null>(null);
 
-  const firewall = firewallPoll.data;
+  const snapshot = update?.snapshot;
+  const firewall = useMemo<FirewallInfo | null>(() => {
+    if (!firewallPoll.data) {
+      return null;
+    }
+    const snapshotZones = snapshot?.firewall?.zones ?? [];
+    return {
+      ...firewallPoll.data,
+      zones: mergeZoneNetworks(firewallPoll.data.zones, snapshotZones),
+      version: sanitizeVersion(firewallPoll.data.version),
+    };
+  }, [firewallPoll.data, snapshot]);
   const updatedAt = firewall?.generated_at ?? null;
   const routerLabel = update?.snapshot
     ? update.snapshot.meta.model || update.snapshot.meta.board || "router"

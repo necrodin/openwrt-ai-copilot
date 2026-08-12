@@ -2143,3 +2143,182 @@ def test_dhcp_collector_no_leases_no_network_no_error() -> None:
     info = DhcpCollector().collect(ctx)
     assert info.leases == []
     assert info.pools == []
+
+
+# --------------------------------------------------------------------------- #
+# Firewall hardening: single-line UCI lists, fw4 version, partial sections     #
+# --------------------------------------------------------------------------- #
+
+
+def test_firewall_collector_single_line_multi_value_lists() -> None:
+    """``uci show firewall`` on OpenWrt 25.12 emits list options inside ONE
+    quote pair (``network='wan' 'wan6'``). The collector must split those into
+    a list instead of dropping the line entirely."""
+    ctx = make_context(
+        {
+            "uci show firewall": (
+                "firewall.@zone[0]=zone\n"
+                "firewall.@zone[0].name='lan'\n"
+                "firewall.@zone[0].network='lan'\n"
+                "firewall.@zone[1]=zone\n"
+                "firewall.@zone[1].name='wan'\n"
+                "firewall.@zone[1].network='wan' 'wan6'\n"
+                "firewall.@zone[1].input='REJECT'\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "Usage:\n\n  /sbin/fw4 start|stop|reload\n",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    by_name = {zone.name: zone for zone in info.zones}
+    assert by_name["lan"].network == ["lan"]
+    assert by_name["wan"].network == ["wan", "wan6"]
+
+
+def test_firewall_collector_accumulates_repeated_list_lines() -> None:
+    """Legacy multi-line list form (``option='a'`` / ``option='b'``) still
+    accumulates, so both output shapes are supported."""
+    ctx = make_context(
+        {
+            "uci show firewall": (
+                "firewall.@zone[0]=zone\n"
+                "firewall.@zone[0].name='wan'\n"
+                "firewall.@zone[0].network='wan'\n"
+                "firewall.@zone[0].network='wan6'\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    assert info.zones[0].network == ["wan", "wan6"]
+
+
+def test_firewall_collector_fw4_usage_not_reported_as_version() -> None:
+    """fw4's ``-v`` is a verbose flag: on the AC2350 it prints its usage text
+    with exit 0. The version must be reported as unavailable, never ``Usage:``."""
+    ctx = make_context(
+        {
+            "uci show firewall": "firewall.@zone[0]=zone\nfirewall.@zone[0].name='lan'\n",
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": (
+                "Usage:\n\n  /sbin/fw4 [-v] [-q] start|stop|flush|restart|reload\n"
+            ),
+            "cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null": "569\n",
+            "cat /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null": "15360\n",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    assert info.status.version is None
+    assert info.conntrack is not None
+    assert info.conntrack.count == 569
+    assert info.conntrack.max == 15360
+
+
+def test_firewall_collector_fw3_version_kept() -> None:
+    """A genuine fw3 version string is preserved (the fw3 backend still uses
+    ``-v`` to print its version)."""
+    ctx = make_context(
+        {
+            "uci show firewall": "firewall.@zone[0]=zone\n",
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "fw3 - v3.6.2\n",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    assert info.status.version == "fw3 - v3.6.2"
+
+
+def test_firewall_collector_rules_keep_ipv6_family() -> None:
+    """IPv6 traffic rules are parsed and retain their ``family``."""
+    ctx = make_context(
+        {
+            "uci show firewall": (
+                "firewall.@rule[0]=rule\n"
+                "firewall.@rule[0].name='Allow-DHCPv6'\n"
+                "firewall.@rule[0].src='wan'\n"
+                "firewall.@rule[0].proto='udp'\n"
+                "firewall.@rule[0].dest_port='546'\n"
+                "firewall.@rule[0].family='ipv6'\n"
+                "firewall.@rule[0].target='ACCEPT'\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "Usage:\n",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    assert info.rules[0].family == "ipv6"
+    assert info.rules[0].dest_port == "546"
+    assert info.rules[0].enabled is True
+
+
+def test_firewall_collector_disabled_redirect_and_zone() -> None:
+    """Disabled sections (redirect + zone) are reported as disabled, not dropped
+    or falsely shown as active."""
+    ctx = make_context(
+        {
+            "uci show firewall": (
+                "firewall.@zone[0]=zone\n"
+                "firewall.@zone[0].name='guest'\n"
+                "firewall.@zone[0].disabled='1'\n"
+                "firewall.@redirect[0]=redirect\n"
+                "firewall.@redirect[0].name='Web'\n"
+                "firewall.@redirect[0].src='wan'\n"
+                "firewall.@redirect[0].dest_ip='192.168.1.50'\n"
+                "firewall.@redirect[0].dest_port='8080'\n"
+                "firewall.@redirect[0].enabled='0'\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "Usage:\n",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    assert info.zones[0].enabled is False
+    assert info.forwards[0].name == "Web"
+    assert info.forwards[0].enabled is False
+    assert info.forwards[0].dest_ip == "192.168.1.50"
+
+
+def test_firewall_collector_zone_policies_and_masquerade() -> None:
+    """Zone input/output/forward policies and per-zone masquerade are parsed
+    (the AC2350 wan zone: input REJECT, output ACCEPT, forward DROP, masq)."""
+    ctx = make_context(
+        {
+            "uci show firewall": (
+                "firewall.@zone[0]=zone\n"
+                "firewall.@zone[0].name='wan'\n"
+                "firewall.@zone[0].network='wan' 'wan6'\n"
+                "firewall.@zone[0].input='REJECT'\n"
+                "firewall.@zone[0].output='ACCEPT'\n"
+                "firewall.@zone[0].forward='DROP'\n"
+                "firewall.@zone[0].masq='1'\n"
+                "firewall.@zone[0].mtu_fix='1'\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "Usage:\n",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    zone = info.zones[0]
+    assert zone.input == "REJECT"
+    assert zone.output == "ACCEPT"
+    assert zone.forward == "DROP"
+    assert zone.masquerade is True
+    assert zone.mtu_fix is True
+    assert zone.network == ["wan", "wan6"]
+
+
+def test_firewall_collector_malformed_partial_sections() -> None:
+    """A bare section header with no options (or junk lines) is tolerated and
+    yields a defaulted zone; unknown section types are ignored safely."""
+    ctx = make_context(
+        {
+            "uci show firewall": (
+                "firewall.@zone[0]=zone\n"
+                "firewall.@zone[1]=zone\n"
+                "firewall.@zone[1].name='lan'\n"
+                "firewall.@custom=something\n"
+                "garbage line that is not UCI\n"
+            ),
+            "fw4 -v 2>/dev/null || fw3 -v 2>/dev/null": "",
+        }
+    )
+    info = FirewallCollector().collect(ctx)
+    assert len(info.zones) == 2
+    assert info.zones[0].name == ""  # bare section defaults to empty name
+    assert info.zones[1].name == "lan"
+    assert info.rules == []
+    assert info.nat == []

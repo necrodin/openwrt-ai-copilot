@@ -120,6 +120,7 @@ class NetworkStatus(BaseModel):
 
 class FirewallZone(BaseModel):
     name: str
+    enabled: bool = True
     input: str | None = None
     output: str | None = None
     forward: str | None = None

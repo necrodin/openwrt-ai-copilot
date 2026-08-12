@@ -90,6 +90,7 @@ export type NetworkStatus = {
 
 export type FirewallZone = {
   name: string;
+  enabled: boolean;
   input: string | null;
   output: string | null;
   forward: string | null;

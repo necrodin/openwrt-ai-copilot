@@ -189,6 +189,28 @@ def test_authorized_management_action_reaches_handler(client: TestClient) -> Non
     assert "Unsupported job kind" in response.json()["detail"]
 
 
+def test_firewall_job_requires_admin_scope(client: TestClient) -> None:
+    """Firewall mutations flow through the jobs endpoint: a readonly caller is
+    rejected with 403, an admin caller reaches the handler (job created)."""
+    payload = {"kind": "firewall", "action": "reload", "confirmed": True}
+    readonly = client.post(
+        "/api/v1/router/management/jobs",
+        json=payload,
+        headers=readonly_headers(),
+    )
+    assert readonly.status_code == 403
+
+    admin = client.post(
+        "/api/v1/router/management/jobs",
+        json=payload,
+        headers=admin_headers(),
+    )
+    assert admin.status_code == 200, admin.text
+    body = admin.json()
+    assert body["kind"] == "firewall"
+    assert body["id"]
+
+
 def test_readonly_key_cannot_save_router(client: TestClient) -> None:
     response = client.post(
         "/api/v1/router/save",

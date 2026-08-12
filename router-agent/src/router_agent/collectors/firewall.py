@@ -24,9 +24,22 @@ from router_agent.model import (
 )
 
 _SECTION_LINE = re.compile(r"^firewall\.(?P<key>[^=]+)=(?P<type>\w+)$")
-_OPTION_LINE = re.compile(r"^firewall\.(?P<key>[^=]+)\.(?P<option>\w+)='(?P<value>[^']*)'$")
+# ``uci show`` prints a list option's values inside one pair of quotes on a
+# single line (``option='wan' 'wan6'``); the value is captured greedily and
+# split into tokens by :func:`_split_option_value`.
+_OPTION_LINE = re.compile(r"^firewall\.(?P<key>[^=]+)\.(?P<option>\w+)='(?P<value>.*)'$")
 
 _TRUE = {"1", "yes", "true", "on"}
+
+
+def _split_option_value(value: str) -> list[str]:
+    """Split a quoted UCI value into tokens.
+
+    ``'lan'`` -> ``["lan"]``; a single-line list ``'wan' 'wan6'`` ->
+    ``["wan", "wan6"]``. ``uci show`` emits list values space-separated inside
+    one quote pair, which the simple ``[^']*`` capture cannot represent.
+    """
+    return [token.strip() for token in value.split("' '")]
 
 
 def _as_bool(value: str | None) -> bool:
@@ -57,14 +70,15 @@ def parse_uci_firewall(text: str) -> FirewallInfo:
         if m:
             key, option, value = m.group("key"), m.group("option"), m.group("value")
             section = sections.setdefault(key, {})
+            values = _split_option_value(value)
             existing = section.get(option)
             if existing is None:
-                section[option] = value
+                section[option] = values[0] if len(values) == 1 else values
             elif isinstance(existing, list):
                 # Repeated option (UCI ``list``) -> accumulate.
-                existing.append(value)
+                existing.extend(values)
             else:
-                section[option] = [existing, value]
+                section[option] = [existing, *values]
             continue
         m = _SECTION_LINE.match(line)
         if m:
@@ -100,6 +114,7 @@ def parse_uci_firewall(text: str) -> FirewallInfo:
             zones.append(
                 FirewallZone(
                     name=section.get("name", ""),
+                    enabled=_section_enabled(section),
                     input=section.get("input"),
                     output=section.get("output"),
                     forward=section.get("forward"),
@@ -165,6 +180,23 @@ def parse_uci_firewall(text: str) -> FirewallInfo:
     )
 
 
+def _probe_version(ctx: CollectorContext) -> str | None:
+    """Best-effort firewall backend version.
+
+    ``fw3 -v`` prints a version; ``fw4 -v`` treats ``-v`` as a *verbose* flag
+    and prints its usage text (exit 0) instead of a version. Usage/help output
+    is therefore rejected and reported as unavailable (``None``) rather than
+    surfaced as a bogus version string.
+    """
+    raw = ctx.sh("fw4 -v 2>/dev/null || fw3 -v 2>/dev/null", default="").strip()
+    if not raw:
+        return None
+    first = raw.splitlines()[0].strip()
+    if not first or first.lower().startswith("usage"):
+        return None
+    return first
+
+
 def _parse_status(ctx: CollectorContext) -> FirewallStatus:
     running = bool(
         ctx.sh(
@@ -174,11 +206,10 @@ def _parse_status(ctx: CollectorContext) -> FirewallStatus:
         ).strip()
     )
     enabled = bool(ctx.sh("ls /etc/rc.d/S*firewall 2>/dev/null", default="").strip())
-    version = ctx.sh("fw4 -v 2>/dev/null || fw3 -v 2>/dev/null", default="").strip()
     return FirewallStatus(
         running=running,
         enabled=enabled,
-        version=version.splitlines()[0] if version else None,
+        version=_probe_version(ctx),
     )
 
 
