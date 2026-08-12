@@ -867,7 +867,11 @@ def test_vpn_collector_openvpn_config() -> None:
     assert len(tunnels) == 1
     assert tunnels[0].kind == "openvpn"
     assert tunnels[0].endpoint == "vpn.example.com:1194"
-    assert tunnels[0].up is True
+    # Config-only instance: enabled in UCI but no live netifd interface. It
+    # must be reported as configured-but-inactive, never "up".
+    assert tunnels[0].enabled is True
+    assert tunnels[0].up is False
+    assert tunnels[0].detail["state"] == "configured-but-inactive"
 
 
 def test_dhcp_collector() -> None:
@@ -2322,3 +2326,200 @@ def test_firewall_collector_malformed_partial_sections() -> None:
     assert info.zones[1].name == "lan"
     assert info.rules == []
     assert info.nat == []
+
+
+# --------------------------------------------------------------------------- #
+# VPN hardening: configured vs running semantics, IPsec, unknown implementations #
+# --------------------------------------------------------------------------- #
+
+
+def test_vpn_collector_no_vpn_configured() -> None:
+    """No VPN tools, no UCI config, no netifd interfaces -> empty list, never
+    fabricated state (the real AC2350 shape)."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "ash: wg: not found\n",
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "uci show openvpn": "",
+            "command -v tailscale >/dev/null 2>&1 && echo yes": "",
+            "command -v ipsec >/dev/null 2>&1 && echo yes": "",
+            "command -v zerotier-cli >/dev/null 2>&1 && echo yes": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert tunnels == []
+
+
+def test_vpn_collector_openvpn_disabled_instance() -> None:
+    """An OpenVPN instance with ``enabled='0'`` is configured but disabled:
+    ``enabled`` False and ``up`` False (never "up" for a stopped tunnel)."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "uci show openvpn": (
+                "openvpn.myserver=openvpn\n"
+                "openvpn.myserver.enabled='0'\n"
+                "openvpn.myserver.remote='vpn.example.com'\n"
+            ),
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    assert tunnels[0].kind == "openvpn"
+    assert tunnels[0].enabled is False
+    assert tunnels[0].up is False
+    assert tunnels[0].detail["state"] == "configured-but-inactive"
+
+
+def test_vpn_collector_openvpn_running_via_netifd() -> None:
+    """A running OpenVPN instance has a live netifd ``openvpn`` interface, so it
+    is reported ``up`` with its addresses (IPv4 + IPv6 preserved)."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "tun0",
+                            "up": True,
+                            "proto": "openvpn",
+                            "ipv4-address": [{"address": "10.8.0.2", "mask": 24}],
+                            "ipv6-address": [{"address": "fd00::2", "mask": 64}],
+                        }
+                    ]
+                }
+            ),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    assert tunnels[0].kind == "openvpn"
+    assert tunnels[0].name == "tun0"
+    assert tunnels[0].up is True
+    assert tunnels[0].addresses == ["10.8.0.2", "fd00::2"]
+
+
+def test_vpn_collector_wireguard_configured_but_inactive_not_up() -> None:
+    """A WireGuard interface netifd reports while ``wg`` has no runtime state is
+    configured-but-inactive: never ``up``."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wg0",
+                            "up": False,
+                            "proto": "wireguard",
+                            "ipv4-address": [{"address": "10.9.0.1", "mask": 24}],
+                        }
+                    ]
+                }
+            ),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    assert tunnels[0].kind == "wireguard"
+    assert tunnels[0].name == "wg0"
+    assert tunnels[0].up is False
+    assert tunnels[0].detail["state"] == "configured-but-inactive"
+
+
+def test_vpn_collector_ipsec_idle_daemon_not_up() -> None:
+    """An installed-but-idle strongSwan (status output, zero Security
+    Associations) must not report ``up``."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "uci show openvpn": "",
+            "command -v tailscale >/dev/null 2>&1 && echo yes": "",
+            "command -v zerotier-cli >/dev/null 2>&1 && echo yes": "",
+            "command -v ipsec >/dev/null 2>&1 && echo yes": "yes",
+            "ipsec statusall 2>/dev/null": (
+                "Status of IKE charon daemon (strongSwan)\n"
+                "Security Associations (0 up, 0 connecting):\n"
+            ),
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    assert tunnels[0].kind == "ipsec"
+    assert tunnels[0].up is False
+    assert tunnels[0].peer_count == 0
+    assert tunnels[0].detail["status"] == "configured-but-inactive"
+
+
+def test_vpn_collector_ipsec_active_connection() -> None:
+    """An active IPsec connection is reported up with a peer count."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": "",
+            "ubus call network.interface dump": json.dumps({"interface": []}),
+            "uci show openvpn": "",
+            "command -v tailscale >/dev/null 2>&1 && echo yes": "",
+            "command -v zerotier-cli >/dev/null 2>&1 && echo yes": "",
+            "command -v ipsec >/dev/null 2>&1 && echo yes": "yes",
+            "ipsec statusall 2>/dev/null": (
+                "Status of IKE charon daemon (strongSwan)\n"
+                "Security Associations (1 up, 0 connecting):\n"
+            ),
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1
+    assert tunnels[0].kind == "ipsec"
+    assert tunnels[0].up is True
+    assert tunnels[0].peer_count == 1
+
+
+def test_vpn_collector_wireguard_active_with_ipv4_ipv6_peers() -> None:
+    """A live WireGuard tunnel reports up, its addresses (IPv4 + IPv6) and peer
+    endpoints/state — no tunnel interface is duplicated."""
+    ctx = make_context(
+        {
+            "wg show all interfaces": (
+                "wg0:\tpublic-key: AAAABBBBCCCC\n"
+                "wg0:\tlisten-port: 51820\n"
+                "wg0:\tpeer: PEERKEY1\n"
+                "wg0:\tendpoint: 198.51.100.7:51820\n"
+                "wg0:\tallowed-ips: 10.0.0.2/32, fd0::2/128\n"
+            ),
+            "wg show all latest-handshakes 2>/dev/null": "wg0\tPEERKEY1\t1750000000\n",
+            "wg show all transfer 2>/dev/null": "wg0\tPEERKEY1\t1024\t2048\n",
+            "wg show all persistent-keepalive 2>/dev/null": "wg0\tPEERKEY1\t25\n",
+            "ubus call network.interface dump": json.dumps(
+                {
+                    "interface": [
+                        {
+                            "interface": "wg0",
+                            "up": True,
+                            "proto": "wireguard",
+                            "ipv4-address": [{"address": "10.0.0.1", "mask": 24}],
+                            "ipv6-address": [{"address": "fd0::1", "mask": 128}],
+                        }
+                    ]
+                }
+            ),
+            "uci show openvpn": "",
+        }
+    )
+    tunnels = VpnCollector().collect(ctx)
+    assert len(tunnels) == 1  # netifd + wg merge, no duplicate
+    wg = tunnels[0]
+    assert wg.kind == "wireguard"
+    assert wg.name == "wg0"
+    assert wg.up is True
+    assert wg.addresses == ["10.0.0.1", "fd0::1"]
+    assert wg.peer_count == 1
+    assert wg.listen_port == 51820
+    peer = wg.detail["peers"][0]
+    assert peer["endpoint"] == "198.51.100.7:51820"
+    assert peer["allowed_ips"] == ["10.0.0.2/32", "fd0::2/128"]
+    assert peer["latest_handshake"] == 1750000000

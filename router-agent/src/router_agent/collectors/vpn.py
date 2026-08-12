@@ -16,9 +16,20 @@ Never starts or stops tunnels — collection is read-only.
 from __future__ import annotations
 
 import json
+import re
 
 from router_agent.collectors.base import Collector, CollectorContext
 from router_agent.model import VpnTunnel
+
+#: strongSwan ``ipsec statusall`` summary line: ``Security Associations (N up, M
+#: connecting)``.
+_IPSEC_SUMMARY = re.compile(r"Security Associations \((\d+) up")
+
+
+#: Keys ``wg show all interfaces`` emits; any other ``iface: key: value`` line
+#: (e.g. a shell error like ``ash: wg: not found`` when stderr is captured into
+#: stdout) is ignored so an error can never be mistaken for a tunnel.
+_WG_KEYS = {"public-key", "listen-port", "peer", "endpoint", "allowed-ips"}
 
 
 def _parse_wg_interfaces(text: str) -> dict[str, dict]:
@@ -27,14 +38,13 @@ def _parse_wg_interfaces(text: str) -> dict[str, dict]:
     Input lines are ``<iface>:\\t<entry>: <value>`` (as produced by the OpenWrt
     ``wg`` wrapper). Sample::
 
-        wg0:\tpublic-key: XXXX
-        wg0:\tlisten-port: 51820
-        wg0:\tpeer: YYYY
-        wg0:\tendpoint: 198.51.100.7:51820
-        wg0:\tallowed-ips: 10.0.0.2/32, fd0::2/128
+        wg0:\\tpublic-key: XXXX
+        wg0:\\tlisten-port: 51820
+        wg0:\\tpeer: YYYY
+        wg0:\\tendpoint: 198.51.100.7:51820
+        wg0:\\tallowed-ips: 10.0.0.2/32, fd0::2/128
     """
     tunnels: dict[str, dict] = {}
-    current: dict | None = None
     for raw in text.splitlines():
         head, sep, rest = raw.partition(":")
         if not sep:
@@ -43,6 +53,8 @@ def _parse_wg_interfaces(text: str) -> dict[str, dict]:
         record = rest.strip()
         key, _, value = record.partition(":")
         key = key.strip()
+        if key not in _WG_KEYS:
+            continue
         value = value.strip()
         current = tunnels.setdefault(iface, {"name": iface, "peers": []})
         if key == "public-key":
@@ -273,11 +285,15 @@ class VpnCollector(Collector):
         for name, opts in sections.items():
             if name in seen or name == "@openvpn[0]":
                 continue
+            # A config-only instance has no live netifd interface, so it is
+            # *configured* (``enabled`` from UCI) but not observed running.
+            # Reporting ``up`` from ``enabled`` would show a configured-but-
+            # stopped tunnel as active.
             tunnels.append(
                 VpnTunnel(
                     name=name,
                     kind="openvpn",
-                    up=opts.get("enabled") == "1",
+                    up=False,
                     enabled=opts.get("enabled") != "0",
                     endpoint=f"{opts.get('remote')}:{opts.get('port')}"
                     if opts.get("remote")
@@ -290,6 +306,7 @@ class VpnCollector(Collector):
                         "local": opts.get("local"),
                         "remote": opts.get("remote"),
                         "port": opts.get("port"),
+                        "state": "configured-but-inactive",
                     },
                 )
             )
@@ -339,16 +356,26 @@ class VpnCollector(Collector):
         status = ctx.sh("ipsec statusall 2>/dev/null", default="")
         if not status.strip():
             return None
-        conns = sum(
-            1 for line in status.splitlines() if line.lstrip().startswith("Security Association")
-        )
+        # The count comes from the summary line ``Security Associations (N up,
+        # M connecting)`` — counting matching *lines* would treat the summary
+        # itself as one connection even when nothing is up.
+        match = _IPSEC_SUMMARY.search(status)
+        conns = int(match.group(1)) if match else 0
+        # The daemon may be installed and running while zero Security
+        # Associations are up: "up" means an active tunnel, not merely that
+        # ``ipsec statusall`` produced output.
+        active = conns > 0
         return VpnTunnel(
             name="ipsec",
             kind="ipsec",
-            up=(status != ""),
+            up=active,
             enabled=True,
             peer_count=conns,
-            detail={"connections": conns, "status": "up" if status else "down", "peers": conns},
+            detail={
+                "connections": conns,
+                "status": "up" if active else "configured-but-inactive",
+                "peers": conns,
+            },
         )
 
     @staticmethod

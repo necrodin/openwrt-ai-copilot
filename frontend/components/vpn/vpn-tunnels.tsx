@@ -6,6 +6,7 @@ import { useState } from "react";
 import { vpnPeers } from "@/hooks/use-vpn";
 import type { VpnTunnel } from "@/lib/dashboard";
 import { formatBytes } from "@/lib/dashboard-utils";
+import { tunnelStatus } from "@/lib/vpn-utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -88,6 +89,7 @@ export function VpnTunnels({ tunnels, busy = false, onToggle }: Props) {
         const open = expanded[name];
         const peers = vpnPeers(tunnel);
         const showPeers = tunnel.kind === "wireguard" && peers.length > 0;
+        const status = tunnelStatus(tunnel);
         return (
           <li
             key={name}
@@ -115,11 +117,7 @@ export function VpnTunnels({ tunnels, busy = false, onToggle }: Props) {
                   )}
                   <span className="truncate text-sm font-medium">{tunnel.name}</span>
                   <Badge variant="outline">{KIND_LABEL[tunnel.kind]}</Badge>
-                  <StatusBadge
-                    label={tunnel.up ? "Up" : "Down"}
-                    tone={tunnel.up ? "success" : "neutral"}
-                    dot
-                  />
+                  <StatusBadge label={status.label} tone={status.tone} dot />
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {caption(tunnel)}

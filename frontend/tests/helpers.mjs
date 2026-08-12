@@ -32,6 +32,10 @@ export function loadFirewallUtilsModule() {
   return jiti(path.join(process.cwd(), "lib/firewall-utils.ts"));
 }
 
+export function loadVpnUtilsModule() {
+  return jiti(path.join(process.cwd(), "lib/vpn-utils.ts"));
+}
+
 /** A syntactically-complete `DeviceSnapshot` the TS logic can consume. */
 export function makeSnapshot(overrides = {}) {
   return {
