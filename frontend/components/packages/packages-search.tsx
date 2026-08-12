@@ -9,6 +9,7 @@ import {
   type PackageSearchResult,
 } from "@/lib/router-management";
 import type { PackageActionKind } from "@/hooks/use-packages";
+import { searchEmptyState } from "@/lib/packages-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/router/confirm-dialog";
@@ -62,7 +63,25 @@ export function PackagesSearch({ busy, onAction }: Props) {
       return <EmptyState message="No results yet." />;
     }
     if (response.results.length === 0) {
-      return <EmptyState message={`No packages match “${response.query}” in the repository.`} />;
+      const empty = searchEmptyState(response);
+      if (empty.kind === "repository-unavailable") {
+        return (
+          <div className="space-y-2">
+            <EmptyState message={empty.title} />
+            {empty.reason ? (
+              <p className="px-2 text-center text-xs text-muted-foreground">
+                {empty.reason}
+              </p>
+            ) : null}
+            {empty.detail && empty.detail.length > 0 ? (
+              <p className="px-2 text-center font-mono text-[11px] text-muted-foreground">
+                {empty.detail.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        );
+      }
+      return <EmptyState message={empty.title} />;
     }
     return (
       <div className="overflow-x-auto rounded-md border">

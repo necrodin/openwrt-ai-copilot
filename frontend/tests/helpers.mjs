@@ -36,6 +36,14 @@ export function loadVpnUtilsModule() {
   return jiti(path.join(process.cwd(), "lib/vpn-utils.ts"));
 }
 
+export function loadStorageUtilsModule() {
+  return jiti(path.join(process.cwd(), "lib/storage-utils.ts"));
+}
+
+export function loadPackagesUtilsModule() {
+  return jiti(path.join(process.cwd(), "lib/packages-utils.ts"));
+}
+
 /** A syntactically-complete `DeviceSnapshot` the TS logic can consume. */
 export function makeSnapshot(overrides = {}) {
   return {

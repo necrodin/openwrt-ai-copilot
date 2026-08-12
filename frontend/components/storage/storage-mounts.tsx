@@ -7,25 +7,24 @@ import { formatBytes } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, Widget } from "@/components/dashboard/widget";
 import { Gauge } from "@/components/dashboard/gauge";
+import {
+  isReadonlyFirmwareMount,
+  mountUsageTone,
+  usableMounts,
+} from "@/lib/storage-utils";
 
 type Props = {
   storage: StorageInfo | null;
 };
 
-function tone(percent: number | null) {
-  if (percent === null) {
-    return "neutral" as const;
-  }
-  if (percent >= 90) {
-    return "danger" as const;
-  }
-  if (percent >= 75) {
-    return "warn" as const;
-  }
-  return "good" as const;
-}
-
 function FilesystemBadge({ mount }: { mount: StorageMountRow }) {
+  if (isReadonlyFirmwareMount(mount)) {
+    return (
+      <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-400">
+        read-only firmware
+      </Badge>
+    );
+  }
   if (mount.rootfs || mount.overlay) {
     return (
       <Badge variant="outline" className="border-sky-500/40 text-sky-700 dark:text-sky-400">
@@ -38,10 +37,12 @@ function FilesystemBadge({ mount }: { mount: StorageMountRow }) {
 
 /**
  * Filesystem usage by mountpoint: capacity, usage gauge, filesystem type, and
- * mount options as reported by the router.
+ * mount options as reported by the router. Read-only firmware images (e.g.
+ * squashfs ``/rom``) are labelled as such and never shown as capacity
+ * exhaustion, and ``df`` header artifacts are never rendered.
  */
 export function StorageMounts({ storage }: Props) {
-  const mounts = storage?.mounts ?? [];
+  const mounts = usableMounts(storage?.mounts ?? []);
 
   return (
     <Widget
@@ -74,7 +75,7 @@ export function StorageMounts({ storage }: Props) {
                   </span>
                 </div>
                 <div className="mt-2">
-                  <Gauge value={percent ?? 0} tone={tone(percent)} />
+                  <Gauge value={percent ?? 0} tone={mountUsageTone(percent, mount)} />
                 </div>
                 <p className="mt-2 truncate text-xs text-muted-foreground">
                   {mount.device}

@@ -2523,3 +2523,119 @@ def test_vpn_collector_wireguard_active_with_ipv4_ipv6_peers() -> None:
     assert peer["endpoint"] == "198.51.100.7:51820"
     assert peer["allowed_ips"] == ["10.0.0.2/32", "fd0::2/128"]
     assert peer["latest_handshake"] == 1750000000
+
+
+# --------------------------------------------------------------------------- #
+# Packages + Storage hardening: apk diagnostics, pkgids, mount robustness      #
+# --------------------------------------------------------------------------- #
+
+
+def test_packages_collector_apk_skips_stderr_diagnostics() -> None:
+    """apk ``WARNING:``/``ERROR:`` diagnostics (cache misses, etc.) must never
+    be parsed as packages — the AC2350 prints exactly these before results."""
+    ctx = make_context(
+        {
+            "command -v apk": "/usr/bin/apk\n",
+            "apk list --installed": (
+                "WARNING: opening from cache https://x/packages.adb: No such file or directory\n"
+                "base-files-1693~f919e7899d mips_24kc "
+                "{feeds/base/base-files} (GPL-2.0) [installed]\n"
+                "ERROR: something bad\n"
+                "dnsmasq-2.91-r2 mips_24kc {feeds/base/network/services/dnsmasq} "
+                "(GPL-2.0) [installed]\n"
+            ),
+        }
+    )
+    packages = PackagesCollector().collect(ctx)
+    names = [pkg.name for pkg in packages]
+    assert names == ["base-files", "dnsmasq"]
+    assert next(pkg for pkg in packages if pkg.name == "base-files").version == "1693~f919e7899d"
+
+
+def test_packages_collector_apk_pkgid_with_epoch_version() -> None:
+    """apk pkgids with epoch versions (``luci-1:25.0.0``) split correctly."""
+    ctx = make_context(
+        {
+            "command -v apk": "/usr/bin/apk\n",
+            "apk list --installed": "luci-1:25.0.0-r1 mips_24kc {} () [installed]\n",
+        }
+    )
+    packages = PackagesCollector().collect(ctx)
+    assert packages[0].name == "luci"
+    assert packages[0].version == "1:25.0.0-r1"
+
+
+def test_storage_collector_duplicate_mountpoints_last_wins() -> None:
+    """A repeated mountpoint collapses to a single entry (last row wins), so the
+    storage list never shows duplicate/phantom mounts."""
+    ctx = make_context(
+        {
+            "df -kPT": (
+                "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+                "overlayfs:/overlay  overlay  30000  12000     18000      40% /\n"
+                "overlayfs:/overlay  overlay  30000  15000     15000      50% /\n"
+            ),
+            "df -i": "",
+        }
+    )
+    mounts = StorageCollector().collect(ctx)
+    assert len(mounts) == 1
+    assert mounts[0].mountpoint == "/"
+    assert mounts[0].use_percent == 50.0
+
+
+def test_storage_collector_partial_row_skipped() -> None:
+    """A partial/invalid ``df`` row (too few columns, non-numeric sizes) is
+    skipped, never fabricated."""
+    ctx = make_context(
+        {
+            "df -kPT": (
+                "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+                "garbage that is not a df row\n"
+                "overlayfs:/overlay  overlay  30000  15000     15000      50% /\n"
+            ),
+            "df -i": "",
+        }
+    )
+    mounts = StorageCollector().collect(ctx)
+    assert len(mounts) == 1
+    assert mounts[0].mountpoint == "/"
+
+
+def test_storage_collector_near_full_overlay() -> None:
+    """A near-full writable overlay reports its real utilization."""
+    ctx = make_context(
+        {
+            "df -kPT": (
+                "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+                "overlayfs:/overlay  overlay  30000  28500      1500      95% /\n"
+            ),
+            "df -i": "",
+        }
+    )
+    mounts = StorageCollector().collect(ctx)
+    assert mounts[0].use_percent == 95.0
+    assert mounts[0].available_bytes == 1500 * 1024
+    assert mounts[0].total_bytes == 30000 * 1024
+
+
+def test_storage_collector_merges_inode_usage_by_mountpoint() -> None:
+    """Inode usage from ``df -i`` is joined to the matching mount when the
+    device supports it; a missing ``df -i`` must not corrupt the mounts."""
+    ctx = make_context(
+        {
+            "df -kPT": (
+                "Filesystem     Type  1024-blocks    Used  Available Capacity Mounted on\n"
+                "overlayfs:/overlay  overlay  30000  15000     15000      50% /\n"
+            ),
+            "df -i": (
+                "Filesystem      Inodes IUsed IFree IUse% Mounted on\n"
+                "overlayfs:/overlay 65536 3000 62536     5% /\n"
+            ),
+        }
+    )
+    mounts = StorageCollector().collect(ctx)
+    assert mounts[0].inodes_total == 65536
+    assert mounts[0].inodes_used == 3000
+    assert mounts[0].inodes_available == 62536
+    assert mounts[0].inode_use_percent == 5.0

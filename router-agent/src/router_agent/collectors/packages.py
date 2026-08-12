@@ -49,7 +49,16 @@ def _parse_apk(text: str) -> list[Package]:
         line = line.strip()
         if not line:
             continue
+        # Never treat apk diagnostics (e.g. ``WARNING: opening from cache ...``
+        # when stderr is captured into the same stream) as a package.
+        if line.startswith(("WARNING:", "ERROR:")):
+            continue
         pkgid = line.split()[0]
+        # A real apk package id always carries a digit (its version — possibly
+        # with an epoch like ``luci-1:25.0.0``); diagnostic or shell-error
+        # tokens never do, so they are not packages.
+        if not any(char.isdigit() for char in pkgid):
+            continue
         name, version = _split_apk_pkgid(pkgid)
         if not name:
             continue
