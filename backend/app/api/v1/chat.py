@@ -12,6 +12,7 @@ and returning citations; the router-state path is untouched otherwise.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
@@ -24,6 +25,18 @@ from app.db.chat_store import ChatStore
 from app.schemas.chat import ChatRequestBody
 from app.services.chat_service import ChatService, NoChatProviderError
 from app.services.rag_service import RAGService
+
+logger = logging.getLogger(__name__)
+
+#: Stable, user-facing message for provider/transport failures. The full
+#: exception (which may contain provider URLs or transport details) is logged
+#: server-side and never returned to the client.
+_AI_FAILED_MESSAGE = (
+    "The AI request failed. Check the provider configuration and try again."
+)
+_AI_STREAM_FAILED_MESSAGE = (
+    "The AI stream failed. Check the provider configuration and try again."
+)
 
 router = APIRouter(tags=["chat"])
 
@@ -119,6 +132,7 @@ async def chat(
     try:
         provider = service.provider_for(_provider_preference(body, rag_service))
     except NoChatProviderError as exc:
+        logger.warning("No chat provider available: %s", exc)
         return Response(
             content=json.dumps({"detail": str(exc)}),
             status_code=503,
@@ -138,9 +152,10 @@ async def chat(
                 model=body.model,
                 temperature=body.temperature,
             )
-        except Exception as exc:  # noqa: BLE001 - surfaced as a clean error
+        except Exception:  # noqa: BLE001 - surfaced as a clean error
+            logger.exception("RAG chat failed for session %r", body.session_id)
             return Response(
-                content=json.dumps({"detail": f"AI request failed: {exc}"}),
+                content=json.dumps({"detail": _AI_FAILED_MESSAGE}),
                 status_code=502,
                 media_type="application/json",
             )
@@ -186,9 +201,10 @@ async def chat(
     )
     try:
         response = await service.complete(provider, chat_request)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a clean error
+    except Exception:  # noqa: BLE001 - surfaced as a clean error
+        logger.exception("Chat completion failed for session %r", body.session_id)
         return Response(
-            content=json.dumps({"detail": f"AI request failed: {exc}"}),
+            content=json.dumps({"detail": _AI_FAILED_MESSAGE}),
             status_code=502,
             media_type="application/json",
         )
@@ -237,6 +253,7 @@ async def chat_stream(
         try:
             provider = service.provider_for(_provider_preference(body, rag_service))
         except NoChatProviderError as exc:
+            logger.warning("No chat provider available: %s", exc)
             yield _sse({"type": "error", "message": str(exc)})
             return
 
@@ -273,8 +290,9 @@ async def chat_stream(
                         )
                     elif event.type in ("session", "generation_started"):
                         yield _sse({"type": event.type, "session_id": body.session_id})
-            except Exception as exc:  # noqa: BLE001 - keep streaming contract
-                yield _sse({"type": "error", "message": f"AI stream failed: {exc}"})
+            except Exception:  # noqa: BLE001 - keep streaming contract
+                logger.exception("RAG stream failed for session %r", body.session_id)
+                yield _sse({"type": "error", "message": _AI_STREAM_FAILED_MESSAGE})
                 return
 
             reply = "".join(reply_parts)
@@ -318,8 +336,9 @@ async def chat_stream(
                 if chunk.delta:
                     reply_parts.append(chunk.delta)
                     yield _sse({"type": "delta", "content": chunk.delta})
-        except Exception as exc:  # noqa: BLE001 - keep streaming contract
-            yield _sse({"type": "error", "message": f"AI stream failed: {exc}"})
+        except Exception:  # noqa: BLE001 - keep streaming contract
+            logger.exception("Chat stream failed for session %r", body.session_id)
+            yield _sse({"type": "error", "message": _AI_STREAM_FAILED_MESSAGE})
             return
 
         reply = "".join(reply_parts)

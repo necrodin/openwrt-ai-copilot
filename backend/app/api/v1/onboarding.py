@@ -72,6 +72,7 @@ async def test_connection(payload: RouterTestRequest) -> dict:
     try:
         return await asyncio.to_thread(onboarding_service.probe_connection, **_credentials(payload))
     except Exception as exc:  # noqa: BLE001 - report friendly errors to the UI
+        logger.exception("Router connection probe failed")
         return {"ok": False, "error": onboarding_service.friendly_error(exc)}
 
 
@@ -81,8 +82,11 @@ async def detect(payload: RouterTestRequest) -> dict:
     try:
         return await asyncio.to_thread(onboarding_service.detect_device, **_credentials(payload))
     except onboarding_service.DeviceDetectionError as exc:
+        # A designed, user-facing message (never host/password/credentials).
+        logger.info("Device detection rejected: %s", exc)
         return {"ok": False, "error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - report friendly errors to the UI
+        logger.exception("Device detection failed")
         return {"ok": False, "error": onboarding_service.friendly_error(exc)}
 
 
@@ -107,7 +111,10 @@ async def save(request: Request, payload: RouterSaveRequest) -> dict:
             private_key=payload.private_key,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        logger.warning("Router save targeted an unknown router: %s", exc)
+        raise HTTPException(
+            status_code=404, detail="Router connection not found"
+        ) from exc
     connection = RouterConnection(
         host=payload.host,
         port=payload.port,

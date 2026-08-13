@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.router import api_router
 from app.core.auth import SessionStore
@@ -29,6 +30,29 @@ from app.services.router_manager import RouterManager
 from app.services.router_tool import RouterTool
 from app.services.snapshot_service import RouterConnection, SnapshotService
 from database.session import init_db
+
+#: Authenticated state prefixes that must never be cached by a browser/shared
+#: cache: router state + management reads, dashboard state, chat history.
+_SENSITIVE_NO_STORE_PREFIXES = (
+    "/api/v1/router/",
+    "/api/v1/dashboard/",
+    "/api/v1/chat/",
+)
+
+
+class _NoStoreSensitive(BaseHTTPMiddleware):
+    """Set ``Cache-Control: no-store`` on sensitive authenticated reads.
+
+    Responses that already declare a cache directive (the chat SSE stream's
+    ``no-cache`` and the artifact download's ``no-store``) are left untouched.
+    """
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        sensitive = request.url.path.startswith(_SENSITIVE_NO_STORE_PREFIXES)
+        if sensitive and "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 @asynccontextmanager
@@ -110,6 +134,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Sensitive authenticated state endpoints (router state, dashboard, chat
+    # history) must not be cached by browsers or shared caches. Endpoints that
+    # already set an explicit cache directive (e.g. the SSE stream's no-cache
+    # and the artifact download's no-store) keep their own header.
+    application.add_middleware(_NoStoreSensitive)  # type: ignore[arg-type]
+
     # Server-side browser sessions (login/logout). Created here, outside the
     # lifespan, so the auth boundary works even for apps started without the
     # full service lifecycle (e.g. lightweight test clients).
@@ -124,6 +154,10 @@ def create_app() -> FastAPI:
     # Client device labels (per-MAC operator labels). Bound here so endpoints
     # resolve it from app state; tests can swap in an isolated store.
     application.state.client_label_store = client_label_store
+
+    # Management job -> creating-principal index (see api.v1.management).
+    # Kept per-application so tests get an isolated registry per app instance.
+    application.state.management_job_owners = {}
 
     application.include_router(api_router, prefix=settings.api_prefix)
 

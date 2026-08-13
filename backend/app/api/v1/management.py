@@ -19,12 +19,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.core.auth import require_write
+from app.core.auth import (
+    SCOPE_DEVICES_WRITE,
+    AuthPrincipal,
+    require_read,
+    require_write,
+)
 from app.services.router_management import (
     ManagementJob,
     RouterManagementError,
@@ -166,10 +172,42 @@ def dns_config(request: Request) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _run_service_action(request: Request, service: str, action: str) -> dict:
+def _job_owners(request: Request) -> dict[str, str]:
+    """Per-application map of ``job_id -> creating principal subject``.
+
+    Jobs are in-memory (``ManagementJobStore``); ownership is tracked here in
+    the API layer so a read-only principal can never read another principal's
+    job result. Initialized once in ``create_app``.
+    """
+    owners = getattr(request.app.state, "management_job_owners", None)
+    if owners is None:
+        owners = {}
+        request.app.state.management_job_owners = owners
+    return owners
+
+
+def _create_job(
+    request: Request,
+    service: RouterManagementService,
+    principal: AuthPrincipal,
+    kind: str,
+    message: str = "Queued",
+) -> ManagementJob:
+    """Create a management job and record its creating principal."""
+    job = service.job_store.create(kind, message=message)
+    _job_owners(request)[job.id] = principal.subject
+    return job
+
+
+def _run_service_action(
+    request: Request,
+    service: str,
+    action: str,
+    principal: AuthPrincipal,
+) -> dict:
     """Queue a service action as a tracked job and return it for polling."""
     mgmt = _service(request)
-    job = mgmt.job_store.create("services", message="Queued")
+    job = _create_job(request, mgmt, principal, "services", message="Queued")
     asyncio.create_task(
         asyncio.to_thread(mgmt.run_services_job, job.id, action=action, service=service)
     )
@@ -177,33 +215,53 @@ def _run_service_action(request: Request, service: str, action: str) -> dict:
 
 
 @router.post("/router/management/services/{service}/start", dependencies=[Depends(require_write)])
-def service_start(request: Request, service: str) -> dict:
+def service_start(
+    request: Request,
+    service: str,
+    principal: Annotated[AuthPrincipal, Depends(require_write)],
+) -> dict:
     """Start a service and return the tracked job."""
-    return _run_service_action(request, service, "start")
+    return _run_service_action(request, service, "start", principal)
 
 
 @router.post("/router/management/services/{service}/stop", dependencies=[Depends(require_write)])
-def service_stop(request: Request, service: str) -> dict:
+def service_stop(
+    request: Request,
+    service: str,
+    principal: Annotated[AuthPrincipal, Depends(require_write)],
+) -> dict:
     """Stop a running service and return the tracked job."""
-    return _run_service_action(request, service, "stop")
+    return _run_service_action(request, service, "stop", principal)
 
 
 @router.post("/router/management/services/{service}/restart", dependencies=[Depends(require_write)])
-def service_restart(request: Request, service: str) -> dict:
+def service_restart(
+    request: Request,
+    service: str,
+    principal: Annotated[AuthPrincipal, Depends(require_write)],
+) -> dict:
     """Restart a service and return the tracked job."""
-    return _run_service_action(request, service, "restart")
+    return _run_service_action(request, service, "restart", principal)
 
 
 @router.post("/router/management/services/{service}/enable", dependencies=[Depends(require_write)])
-def service_enable(request: Request, service: str) -> dict:
+def service_enable(
+    request: Request,
+    service: str,
+    principal: Annotated[AuthPrincipal, Depends(require_write)],
+) -> dict:
     """Mark a service to start at boot and return the tracked job."""
-    return _run_service_action(request, service, "enable")
+    return _run_service_action(request, service, "enable", principal)
 
 
 @router.post("/router/management/services/{service}/disable", dependencies=[Depends(require_write)])
-def service_disable(request: Request, service: str) -> dict:
+def service_disable(
+    request: Request,
+    service: str,
+    principal: Annotated[AuthPrincipal, Depends(require_write)],
+) -> dict:
     """Prevent a service from starting at boot and return the tracked job."""
-    return _run_service_action(request, service, "disable")
+    return _run_service_action(request, service, "disable", principal)
 
 
 @router.get("/router/management/logs")
@@ -243,7 +301,11 @@ def system_info(request: Request) -> dict:
 
 
 @router.post("/router/management/jobs", dependencies=[Depends(require_write)])
-async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
+async def create_job(
+    request: Request,
+    payload: ManagementJobRequest,
+    principal: Annotated[AuthPrincipal, Depends(require_write)],
+) -> dict:
     """Start a management job and return it for progress polling."""
     service = _service(request)
     if payload.kind not in JOB_KINDS:
@@ -260,12 +322,12 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     f"'{payload.action}' on the router."
                 ),
             )
-        job = service.job_store.create("action", message="Queued")
+        job = _create_job(request, service, principal, "action", message="Queued")
         asyncio.create_task(asyncio.to_thread(service.run_action_job, job.id, payload.action))
         return _job_dict(job)
 
     if payload.kind == "backup":
-        job = service.job_store.create("backup", message="Queued")
+        job = _create_job(request, service, principal, "backup", message="Queued")
         asyncio.create_task(asyncio.to_thread(service.run_backup_job, job.id))
         return _job_dict(job)
 
@@ -295,7 +357,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "the firewall configuration on the router."
                 ),
             )
-        job = service.job_store.create("firewall", message="Queued")
+        job = _create_job(request, service, principal, "firewall", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_firewall_job,
@@ -323,7 +385,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "wireless network on the router."
                 ),
             )
-        job = service.job_store.create("wireless", message="Queued")
+        job = _create_job(request, service, principal, "wireless", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_wireless_job,
@@ -346,7 +408,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "VPN instance on the router."
                 ),
             )
-        job = service.job_store.create("vpn", message="Queued")
+        job = _create_job(request, service, principal, "vpn", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_vpn_toggle_job,
@@ -368,7 +430,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "the DHCP configuration on the router."
                 ),
             )
-        job = service.job_store.create("dhcp", message="Queued")
+        job = _create_job(request, service, principal, "dhcp", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_dhcp_job,
@@ -394,7 +456,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "the DNS configuration on the router."
                 ),
             )
-        job = service.job_store.create("dns", message="Queued")
+        job = _create_job(request, service, principal, "dns", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_dns_job,
@@ -419,7 +481,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "the network on the router."
                 ),
             )
-        job = service.job_store.create("network", message="Queued")
+        job = _create_job(request, service, principal, "network", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_network_job,
@@ -432,7 +494,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
         return _job_dict(job)
 
     if payload.kind == "bundle":
-        job = service.job_store.create("bundle", message="Queued")
+        job = _create_job(request, service, principal, "bundle", message="Queued")
         asyncio.create_task(asyncio.to_thread(service.run_bundle_job, job.id))
         return _job_dict(job)
 
@@ -447,7 +509,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     f"'{payload.action}' package operation on the router."
                 ),
             )
-        job = service.job_store.create("packages", message="Queued")
+        job = _create_job(request, service, principal, "packages", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_packages_job,
@@ -467,7 +529,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     "system settings on the router."
                 ),
             )
-        job = service.job_store.create("system", message="Queued")
+        job = _create_job(request, service, principal, "system", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_system_job,
@@ -492,7 +554,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
                     f"'{payload.action}' storage operation on the router."
                 ),
             )
-        job = service.job_store.create("storage", message="Queued")
+        job = _create_job(request, service, principal, "storage", message="Queued")
         asyncio.create_task(
             asyncio.to_thread(
                 service.run_storage_job,
@@ -506,7 +568,7 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
     # restore
     if not payload.filename or not payload.content_b64:
         raise HTTPException(status_code=422, detail="filename and content_b64 are required.")
-    job = service.job_store.create("restore", message="Queued")
+    job = _create_job(request, service, principal, "restore", message="Queued")
     try:
         service.stage_restore_job(
             job.id,
@@ -519,10 +581,22 @@ async def create_job(request: Request, payload: ManagementJobRequest) -> dict:
 
 
 @router.get("/router/management/jobs/{job_id}")
-def get_job(request: Request, job_id: str) -> dict:
-    """Return a management job's current state and result."""
+def get_job(
+    request: Request,
+    job_id: str,
+    principal: Annotated[AuthPrincipal, Depends(require_read)],
+) -> dict:
+    """Return a management job's current state and result.
+
+    Job results may contain command output, so reads are scoped: the caller
+    must hold write scope (admin) or be the principal that created the job.
+    Any other caller gets 404 so a job's existence is never revealed.
+    """
     job = _service(request).job_store.get(job_id)
     if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    owned = _job_owners(request).get(job_id) == principal.subject
+    if not principal.has_scope(SCOPE_DEVICES_WRITE) and not owned:
         raise HTTPException(status_code=404, detail="Job not found")
     return _job_dict(job)
 
