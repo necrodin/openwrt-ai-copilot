@@ -4,7 +4,6 @@ import { Router as RouterIcon } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { AiCopilotPanel } from "@/components/layout/ai-copilot-panel";
 import { BandwidthWidget } from "@/components/dashboard/bandwidth-widget";
 import { CpuWidget } from "@/components/dashboard/cpu-widget";
 import { DevicesWidget } from "@/components/dashboard/devices-widget";
@@ -129,8 +128,8 @@ export default function DashboardPage() {
   const recommendations = routerStatus.data?.recommendations ?? [];
 
   return (
-    <div className="flex min-h-full">
-      <div className="min-w-0 flex-1 space-y-4 p-4 lg:p-6">
+    <div className="min-h-full">
+      <div className="min-w-0 space-y-4 p-4 lg:p-6">
         <header className="space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
@@ -200,8 +199,6 @@ export default function DashboardPage() {
           <ServicesWidget services={snapshot?.services ?? []} loading={widgetLoading} error={widgetError} />
         </WidgetGrid>
       </div>
-
-      <AiCopilotPanel />
     </div>
   );
 }

@@ -143,7 +143,7 @@ export function AuthBoundary({ children }: { children: ReactNode }) {
     }
     if (status === "authenticated") {
       if (onAuthPage) {
-        router.replace("/");
+        router.replace("/dashboard");
       }
       return;
     }

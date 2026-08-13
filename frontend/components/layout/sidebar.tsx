@@ -3,28 +3,22 @@
 import {
   Activity,
   BookOpenText,
-  Bug,
-  ExternalLink,
+  Cog,
   Github,
   Globe,
   HardDrive,
-  Heart,
-  Info,
   LayoutDashboard,
   Lock,
   Map,
-  MessageSquareText,
   MonitorSmartphone,
   Network,
   Package,
   PanelLeftClose,
   PanelLeftOpen,
-  Router,
   Server,
   ServerCog,
   Settings,
   Shield,
-  Sparkles,
   Wifi,
   type LucideIcon,
 } from "lucide-react";
@@ -43,7 +37,6 @@ export type NavItem = {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/routers", label: "Routers", icon: Router },
   { href: "/clients", label: "Clients", icon: MonitorSmartphone },
   { href: "/wireless", label: "Wireless", icon: Wifi },
   { href: "/network", label: "Network", icon: Network },
@@ -55,26 +48,28 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/packages", label: "Packages", icon: Package },
   { href: "/storage", label: "Storage", icon: HardDrive },
   { href: "/services", label: "Services", icon: ServerCog },
-  { href: "/system", label: "System", icon: Settings },
-  { href: "/chat", label: "AI Chat", icon: MessageSquareText },
+  { href: "/system", label: "System", icon: Cog },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-type SecondaryItem = {
+type ExternalItem = {
   label: string;
   href: string;
   icon: LucideIcon;
-  external?: boolean;
 };
 
-const SECONDARY_ITEMS: SecondaryItem[] = [
-  { label: "GitHub", href: SITE_CONFIG.repositoryUrl, icon: Github, external: true },
-  { label: "Documentation", href: SITE_CONFIG.documentationUrl, icon: BookOpenText, external: true },
-  { label: "Report Issue", href: SITE_CONFIG.issuesUrl, icon: Bug, external: true },
-  { label: "Roadmap", href: SITE_CONFIG.roadmapUrl, icon: Map, external: true },
-  { label: "Donate", href: "/support", icon: Heart },
-  { label: "License", href: "/about#license", icon: Sparkles },
-  { label: "About", href: "/about", icon: Info },
+/** External project links — icon-only so they never compete with the menu. */
+const EXTERNAL_ITEMS: ExternalItem[] = [
+  { label: "GitHub", href: SITE_CONFIG.repositoryUrl, icon: Github },
+  { label: "Documentation", href: SITE_CONFIG.documentationUrl, icon: BookOpenText },
+  { label: "Roadmap", href: SITE_CONFIG.roadmapUrl, icon: Map },
+];
+
+/** Internal resource links — compact text, secondary to the operational menu. */
+const RESOURCE_ITEMS: { label: string; href: string }[] = [
+  { label: "Donate", href: "/support" },
+  { label: "License", href: "/about#license" },
+  { label: "About", href: "/about" },
 ];
 
 type SidebarProps = {
@@ -145,51 +140,45 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       </div>
 
       <nav
-        className="shrink-0 space-y-1 overflow-y-auto p-2"
-        aria-label="Resources"
+        className="shrink-0 space-y-2 border-t p-2"
+        aria-label="Project resources"
       >
-        {SECONDARY_ITEMS.map((item) => {
-          const className = cn(
-            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
-            collapsed && "justify-center px-0",
-          );
-          const content = (
-            <>
-              <item.icon className="size-4 shrink-0" aria-hidden />
-              {!collapsed ? (
-                <>
-                  <span className="truncate">{item.label}</span>
-                  {item.external ? (
-                    <ExternalLink className="ml-auto size-3 opacity-60" aria-hidden />
-                  ) : null}
-                </>
-              ) : null}
-            </>
-          );
-          return item.external ? (
+        {/* External links are icon-only with tooltips + accessible labels. */}
+        <div
+          className={cn(
+            "flex gap-1",
+            collapsed ? "flex-col items-center" : "items-center",
+          )}
+        >
+          {EXTERNAL_ITEMS.map((item) => (
             <a
               key={item.label}
               href={item.href}
               target="_blank"
               rel="noreferrer"
-              className={className}
-              title={collapsed ? item.label : undefined}
-              aria-label={item.label}
+              title={item.label}
+              aria-label={`${item.label} (opens in a new tab)`}
+              className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
             >
-              {content}
+              <item.icon className="size-4" aria-hidden />
             </a>
-          ) : (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={className}
-              title={collapsed ? item.label : undefined}
-              aria-label={item.label}
-            >
-              {content}
-            </Link>
-          );
-        })}
+          ))}
+        </div>
+
+        {!collapsed ? (
+          <ul className="flex flex-wrap gap-x-3 gap-y-1 px-1">
+            {RESOURCE_ITEMS.map((item) => (
+              <li key={item.label}>
+                <Link
+                  href={item.href}
+                  className="text-xs text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground"
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </nav>
 
       <div className="border-t p-2">
@@ -209,23 +198,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           )}
           {!collapsed ? <span>Collapse</span> : null}
         </button>
-      </div>
-
-      <div
-        className={cn(
-          "flex shrink-0 items-center border-t",
-          collapsed ? "justify-center p-1.5" : "px-3 py-2",
-        )}
-      >
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full border bg-sidebar-accent/60 px-2 py-0.5 font-mono text-xs text-sidebar-foreground/80",
-            collapsed && "px-1.5",
-          )}
-          title={`Version ${SITE_CONFIG.version}`}
-        >
-          v{SITE_CONFIG.version}
-        </span>
       </div>
     </aside>
   );

@@ -145,3 +145,15 @@ export function saveRouter(
 export function listConnections(): Promise<ConnectionsResponse> {
   return getJson("/router/connections");
 }
+
+/** Remove a saved router connection (write-scoped backend operation). */
+export async function deleteConnection(routerId: number): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/router/connections/${routerId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`Request failed with status ${res.status}`);
+  }
+  return (await res.json()) as { ok: boolean };
+}
