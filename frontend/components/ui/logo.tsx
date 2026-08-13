@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
  * the wordmark. The mark is an inline SVG so it inherits `currentColor`, scales
  * with its container, and renders crisply at any size.
  *
- * Use `<Logo withText />` for the sidebar/landing and `<Logo />` alone for
- * compact spots (avatar, collapsing sidebar, header).
+ * Use `<Logo withText />` in the top navigation and `<Logo />` alone for
+ * compact spots (avatar, footer).
  */
 
 type LogoProps = {

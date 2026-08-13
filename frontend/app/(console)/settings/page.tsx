@@ -71,7 +71,7 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Routers</h2>
           <Button asChild size="sm" variant="outline">
-            <Link href="/onboarding">
+            <Link href="/onboarding?add=1">
               <Plus className="size-4" aria-hidden />
               Add router
             </Link>

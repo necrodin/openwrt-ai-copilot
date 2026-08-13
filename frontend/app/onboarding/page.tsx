@@ -405,9 +405,11 @@ export default function OnboardingPage() {
         }
         // Re-onboarding an existing router: the wizard was re-opened with
         // ?reconnect=<id> (or ?reconnect for the most recent router), so it is
-        // allowed to run even though a router is already configured.
+        // allowed to run even though a router is already configured, and it
+        // targets that specific record (edit, never add).
         const params = new URLSearchParams(window.location.search);
         const reconnect = params.get("reconnect");
+        const add = params.get("add");
         const saved = data.routers;
         if (reconnect !== null && saved.length > 0) {
           const target =
@@ -420,6 +422,13 @@ export default function OnboardingPage() {
             username: target.username,
           }));
           setName(target.name);
+          setLoading(false);
+          return;
+        }
+        // Explicit "add a new router" from Settings: show the blank wizard
+        // even when a router is already configured (distinct from reconnect).
+        if (add !== null) {
+          currentRouterRef.current = null;
           setLoading(false);
           return;
         }

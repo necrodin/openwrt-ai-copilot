@@ -294,7 +294,7 @@ export function CopilotPanel({
   }
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l bg-background shadow-2xl lg:static lg:z-auto lg:w-80 lg:shadow-none">
+    <div className="fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l bg-background shadow-2xl lg:static lg:z-auto lg:w-80 lg:shadow-none">
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">
           <Bot className="size-4 shrink-0 text-primary" aria-hidden />
@@ -443,6 +443,6 @@ export function CopilotPanel({
           Read-only · grounded in the router snapshot
         </p>
       </footer>
-    </aside>
+    </div>
   );
 }
