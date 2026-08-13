@@ -1184,13 +1184,13 @@ def test_services_collector_detects_running_enabled_configured() -> None:
     ctx = make_context(
         {
             "nft list ruleset 2>/dev/null": "table inet fw4\n",
-            "/etc/init.d/firewall enabled 2>/dev/null": "/etc/rc.d/S19firewall\n",
+            "ls /etc/rc.d/S*firewall": "enabled\n",
             "uci show firewall 2>/dev/null": "firewall.@defaults[0]=defaults\n",
-            "pgrep -x dnsmasq 2>/dev/null": "1234\n",
-            "/etc/init.d/dnsmasq enabled 2>/dev/null": "/etc/rc.d/S50dnsmasq\n",
+            "grep -lxw dnsmasq /proc/[0-9]*/comm 2>/dev/null": "/proc/19241/comm\n",
+            "ls /etc/rc.d/S*dnsmasq": "enabled\n",
             "uci show dhcp 2>/dev/null": "dhcp.dnsmasq=dnsmasq\n",
-            "pgrep -x dropbear 2>/dev/null": "",
-            "/etc/init.d/dropbear enabled 2>/dev/null": "/etc/rc.d/S45dropbear\n",
+            "grep -lxw dropbear /proc/[0-9]*/comm 2>/dev/null": "",
+            "ls /etc/rc.d/S*dropbear": "enabled\n",
             "uci show dropbear 2>/dev/null": "dropbear.@dropbear[0]=dropbear\n",
         }
     )
@@ -1204,6 +1204,7 @@ def test_services_collector_detects_running_enabled_configured() -> None:
     assert services["dropbear"].configured is True
     # Unconfigured service reports as not configured.
     assert services["tailscale"].configured is False
+    assert services["tailscale"].enabled is False
 
 
 def test_network_collector_real_shape_dns_auto_file() -> None:
@@ -2639,3 +2640,135 @@ def test_storage_collector_merges_inode_usage_by_mountpoint() -> None:
     assert mounts[0].inodes_used == 3000
     assert mounts[0].inodes_available == 62536
     assert mounts[0].inode_use_percent == 5.0
+
+
+# --------------------------------------------------------------------------- #
+# Services + System hardening: rc.d enabled, /proc comm running, arch fallback #
+# --------------------------------------------------------------------------- #
+
+
+def test_services_enabled_via_rc_d_symlink() -> None:
+    """OpenWrt 25.x init scripts print nothing for ``enabled``; boot-enable is
+    the presence of an S-prefixed /etc/rc.d symlink (the AC2350 shape)."""
+    ctx = make_context(
+        {
+            "nft list ruleset 2>/dev/null": "table inet fw4\n",
+            "ls /etc/rc.d/S*firewall": "enabled\n",
+            "uci show firewall 2>/dev/null": "firewall.@defaults[0]=defaults\n",
+            "ls /etc/rc.d/S*tailscaled": "",
+            "uci show tailscale 2>/dev/null": "",
+            "grep -lxw tailscaled /proc/[0-9]*/comm 2>/dev/null": "",
+        }
+    )
+    services = {s.name: s for s in ServicesCollector().collect(ctx)}
+    assert services["firewall"].enabled is True
+    # No S-symlink -> not boot-enabled, even though an init script exists.
+    assert services["tailscale"].enabled is False
+
+
+def test_services_running_proc_comm_matches_direct_process() -> None:
+    """``pgrep -x`` fails to match directly-run processes on some BusyBox
+    builds (e.g. dropbear on OpenWrt 25.x); an exact /proc comm match works."""
+    ctx = make_context(
+        {
+            "nft list ruleset 2>/dev/null": "",
+            "ls /etc/rc.d/S*firewall": "",
+            "uci show firewall 2>/dev/null": "",
+            "grep -lxw dropbear /proc/[0-9]*/comm 2>/dev/null": "/proc/1541/comm\n",
+            "ls /etc/rc.d/S*dropbear": "",
+            "uci show dropbear 2>/dev/null": "dropbear.@dropbear[0]=dropbear\n",
+        }
+    )
+    services = {s.name: s for s in ServicesCollector().collect(ctx)}
+    assert services["dropbear"].running is True
+
+
+def test_services_running_multibinary_missing_binary_does_not_zero() -> None:
+    """hostapd is probed as ``hostapd`` OR ``wpa_supplicant``; a missing
+    second binary must not make the whole probe empty (a non-zero exit would
+    otherwise zero the result)."""
+    ctx = make_context(
+        {
+            "nft list ruleset 2>/dev/null": "",
+            "uci show wireless 2>/dev/null": "wireless.radio0=wifi-device\n",
+            "grep -lxw hostapd /proc/[0-9]*/comm 2>/dev/null": "/proc/1647/comm\n",
+            # wpa_supplicant not running -> the probe must still report running
+            # because hostapd matched.
+        }
+    )
+    services = {s.name: s for s in ServicesCollector().collect(ctx)}
+    assert services["hostapd"].running is True
+
+
+def test_kernel_collector_falls_back_to_release_for_architecture() -> None:
+    """``ubus system board`` on OpenWrt 25.12 omits ``architecture``; it is
+    recovered from ``/etc/openwrt_release`` (the AC2350 shape)."""
+    ctx = make_context(
+        {
+            "ubus call system board": json.dumps(
+                {
+                    "kernel": "6.12.71",
+                    "hostname": "OpenWrt",
+                    "model": "Xiaomi AIoT AC2350",
+                    "board_name": "xiaomi,aiot-ac2350",
+                    "system": "Qualcomm Atheros QCA956X ver 1 rev 0",
+                    "release": {
+                        "distribution": "OpenWrt",
+                        "version": "25.12.0",
+                        "revision": "r32713-f919e7899d",
+                        "target": "ath79/generic",
+                        "description": "OpenWrt 25.12.0 r32713-f919e7899d",
+                    },
+                }
+            ),
+            "cat /etc/openwrt_release 2>/dev/null": (
+                "DISTRIB_ID='OpenWrt'\n"
+                "DISTRIB_RELEASE='25.12.0'\n"
+                "DISTRIB_REVISION='r32713-f919e7899d'\n"
+                "DISTRIB_TARGET='ath79/generic'\n"
+                "DISTRIB_ARCH='mips_24kc'\n"
+                "DISTRIB_DESCRIPTION='OpenWrt 25.12.0 r32713-f919e7899d'\n"
+            ),
+        }
+    )
+    kernel = KernelCollector().collect(ctx)
+    assert kernel.architecture == "mips_24kc"
+    assert kernel.model == "Xiaomi AIoT AC2350"
+    assert kernel.release_version == "25.12.0"
+    assert kernel.target == "ath79/generic"
+
+
+def test_kernel_collector_keeps_board_architecture_when_present() -> None:
+    """When the board provides architecture, the release fallback is not used."""
+    ctx = make_context(
+        {
+            "ubus call system board": json.dumps(
+                {
+                    "architecture": "x86_64",
+                    "kernel": "6.6.80",
+                    "model": "Generic x86/64",
+                    "release": "SNAPSHOT",
+                }
+            )
+        }
+    )
+    kernel = KernelCollector().collect(ctx)
+    assert kernel.architecture == "x86_64"
+
+
+def test_services_running_no_substring_false_positive() -> None:
+    """The ``tc`` probe must not match ``watchdogd`` (which merely contains the
+    substring ``tc``): the running check is an exact comm match, so an idle
+    sqm service is reported stopped, never running."""
+    ctx = make_context(
+        {
+            "nft list ruleset 2>/dev/null": "",
+            "uci show sqm 2>/dev/null": "sqm.@queue[0]=queue\n",
+            "ls /etc/rc.d/S*sqm": "enabled\n",
+            "grep -lxw sqm /proc/[0-9]*/comm 2>/dev/null": "",
+            "grep -lxw tc /proc/[0-9]*/comm 2>/dev/null": "",
+        }
+    )
+    services = {s.name: s for s in ServicesCollector().collect(ctx)}
+    assert services["sqm"].running is False
+    assert services["sqm"].enabled is True

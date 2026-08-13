@@ -58,6 +58,20 @@ def _clean(value: Any) -> str | None:
     return text or None
 
 
+def _distrib_value(ctx: CollectorContext, key: str) -> str | None:
+    """Read ``DISTRIB_*`` from ``/etc/openwrt_release`` (best-effort).
+
+    ``ubus system board`` no longer carries fields such as ``architecture`` on
+    modern OpenWrt; the distribution file is the stable source.
+    """
+    prefix = f"{key}="
+    for line in ctx.sh("cat /etc/openwrt_release 2>/dev/null", default="").splitlines():
+        line = line.strip()
+        if line.startswith(prefix):
+            return line.partition("=")[2].strip().strip("'\"") or None
+    return None
+
+
 class KernelCollector(Collector):
     name = "kernel"
 
@@ -69,12 +83,13 @@ class KernelCollector(Collector):
 
         parsed = _parse_release(board.get("release"))
         release = parsed["release_description"] or parsed["release_version"] or ""
+        architecture = _clean(board.get("architecture")) or _distrib_value(ctx, "DISTRIB_ARCH")
         return KernelInfo(
             kernel=str(board.get("kernel") or ""),
             release=release,
             hostname=str(board.get("hostname") or ""),
             model=str(board.get("model") or ""),
-            architecture=str(board.get("architecture") or ""),
+            architecture=architecture or "",
             board=str(board.get("board_name") or ""),
             system=str(board.get("system") or ""),
             version=str(board.get("version") or ""),

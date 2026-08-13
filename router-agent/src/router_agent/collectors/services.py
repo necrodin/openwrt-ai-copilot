@@ -71,14 +71,34 @@ class ServicesCollector(Collector):
             return bool(ctx.sh(spec.running_cmd, default="").strip())
         if not spec.binaries:
             return False
-        pgrep = " ".join(f"pgrep -x {binary} 2>/dev/null" for binary in spec.binaries)
-        return bool(ctx.sh(pgrep, default="").strip())
+        # An exact ``/proc/*/comm`` match is reliable on BusyBox builds where
+        # ``pgrep -x`` fails to match directly-run processes (e.g. dropbear on
+        # OpenWrt 25.x), and avoids the substring false positives of plain
+        # ``pgrep`` (e.g. ``tc`` matching ``watchdogd``). ``|| true`` keeps a
+        # missing binary from making the command exit non-zero and zeroing the
+        # whole result.
+        chain = (
+            " || true; ".join(
+                f"grep -lxw {binary} /proc/[0-9]*/comm 2>/dev/null"
+                for binary in spec.binaries
+            )
+            + " || true"
+        )
+        return bool(ctx.sh(chain, default="").strip())
 
     @staticmethod
     def _enabled(ctx: CollectorContext, spec: _ServiceSpec) -> bool:
         if spec.init is None:
             return False
-        return bool(ctx.sh(f"/etc/init.d/{spec.init} enabled 2>/dev/null", default="").strip())
+        # OpenWrt 25.x init scripts no longer print anything for the
+        # ``enabled`` subcommand; the boot state is the presence of an
+        # S-prefixed /etc/rc.d symlink. Fall back to the subcommand for older
+        # releases where it still answers.
+        probe = (
+            f"ls /etc/rc.d/S*{spec.init} >/dev/null 2>&1 && echo enabled || "
+            f"/etc/init.d/{spec.init} enabled 2>/dev/null"
+        )
+        return bool(ctx.sh(probe, default="").strip())
 
     @staticmethod
     def _configured(ctx: CollectorContext, spec: _ServiceSpec) -> bool:
