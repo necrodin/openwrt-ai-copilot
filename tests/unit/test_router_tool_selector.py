@@ -10,7 +10,7 @@ from app.services.router_tool_selector import RouterToolSelector
 
 def _registry() -> RouterToolRegistry:
     registry = RouterToolRegistry()
-    for name in ("system", "cpu", "memory", "storage", "network"):
+    for name in ("system", "cpu", "memory", "storage", "network", "wifi"):
         registry.register(name, lambda: None)
     return registry
 
@@ -72,8 +72,53 @@ def test_select_empty_registry() -> None:
         ("what is the firmware version?", "system"),
         ("how many cores does it have?", "cpu"),
         ("any issues with the filesystem?", "storage"),
-        ("is wifi up?", "network"),
+        ("is wifi up?", "wifi"),
+        ("show the wan interfaces", "network"),
     ],
 )
 def test_select_keyword_variants(message: str, intent: str) -> None:
     assert intent in _selector().select(message)
+
+
+@pytest.mark.parametrize(
+    "message,intent",
+    [
+        ("is vpn configured?", "network"),
+        ("show wireguard peers", "network"),
+        ("what are the dns servers?", "network"),
+        ("show active dhcp leases.", "network"),
+        ("which clients are online?", "wifi"),
+        ("list the firewall zones", "network"),
+        ("what is my wan gateway?", "network"),
+        ("show the routing table", "network"),
+        ("what packages are installed?", "system"),
+        ("what services are running?", "system"),
+        ("any new logs from the firewall?", "system"),
+        ("how much ram is free?", "memory"),
+    ],
+)
+def test_select_common_router_topics(message: str, intent: str) -> None:
+    """Common router topics (VPN/DNS/DHCP/clients/firewall/services/packages)
+    must select a router intent so focused context + diagnosis are injected."""
+    assert intent in _selector().select(message)
+
+
+def test_select_write_request_still_selects_read_context_only() -> None:
+    """A write-capable phrase maps to read-only router intents, never to a
+    management action (the chat tool layer has no write tools)."""
+    intents = _selector().select("restart dnsmasq")
+    assert intents  # read-only context intent
+    assert "network" in intents
+
+
+def test_select_wifi_intent() -> None:
+    assert "wifi" in _selector().select("how many wireless clients are connected?")
+    assert "wifi" in _selector().select("show me the wifi stations")
+    assert "wifi" in _selector().select("which clients are wireless?")
+
+
+def test_select_wifi_does_not_force_network() -> None:
+    """A pure wireless question selects the wifi intent; it does not need to
+    drag in the network-interface intent."""
+    intents = _selector().select("show wireless clients")
+    assert "wifi" in intents

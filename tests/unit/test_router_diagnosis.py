@@ -222,10 +222,19 @@ def test_wan_detected_by_cellular_proto() -> None:
 
 
 def test_missing_wifi() -> None:
-    report = _engine().diagnose(
+    # No WiFi data collected for this question -> "unknown", never "missing".
+    unknown = _engine().diagnose(
         _snapshot(
             network=[{"name": "wan", "up": True}],
             wifi=None,
+        )
+    )
+    assert unknown.findings == []
+    # Collected WiFi with zero radios/clients -> genuinely missing.
+    report = _engine().diagnose(
+        _snapshot(
+            network=[{"name": "wan", "up": True}],
+            wifi={"radios": [], "client_count": 0},
         )
     )
     finding = report.findings[0]

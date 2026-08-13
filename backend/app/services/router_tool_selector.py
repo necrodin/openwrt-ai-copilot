@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from app.services.router_tool_registry import RouterToolRegistry
 
-ToolIntent = str  # one of: system, cpu, memory, storage, network
+ToolIntent = str  # one of: system, cpu, memory, storage, network, wifi
 
 _KEYWORDS: dict[ToolIntent, tuple[str, ...]] = {
     "system": (
@@ -24,10 +24,30 @@ _KEYWORDS: dict[ToolIntent, tuple[str, ...]] = {
         "uptime",
         "system",
         "router",
+        # Services / software / runtime info.
+        "services",
+        "service",
+        "process",
+        "processes",
+        "package",
+        "packages",
+        "installed",
+        "temperature",
+        "logs",
+        "logread",
+        "timezone",
     ),
     "cpu": ("cpu", "load", "processor", "cores"),
-    "memory": ("memory", "ram"),
-    "storage": ("storage", "disk", "mount", "filesystem", "space"),
+    "memory": ("memory", "ram", "swap"),
+    "storage": (
+        "storage",
+        "disk",
+        "mount",
+        "filesystem",
+        "filesystems",
+        "space",
+        "capacity",
+    ),
     "network": (
         "network",
         "interface",
@@ -38,8 +58,29 @@ _KEYWORDS: dict[ToolIntent, tuple[str, ...]] = {
         "wan",
         "link",
         "traffic",
+        # Router network topics (VPN / DNS / DHCP / firewall / routing).
+        # ``route``/``lease``/``nat`` are avoided: they substring-match
+        # unrelated words (``router``, ``please``, ``international``).
+        "vpn",
+        "openvpn",
+        "wireguard",
+        "dns",
+        "dnsmasq",
+        "dhcp",
+        "leases",
+        "firewall",
+        "gateway",
+        "routing",
+        "neighbor",
+    ),
+    "wifi": (
         "wifi",
         "wireless",
+        "clients",
+        "client",
+        "stations",
+        "station",
+        "ssid",
     ),
 }
 

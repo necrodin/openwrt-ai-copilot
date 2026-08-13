@@ -70,7 +70,11 @@ def build_context(update: DashboardUpdate | None) -> dict:
         "hostname": kernel.hostname if kernel else snap.meta.host or "unknown",
         "model": kernel.model if kernel else snap.meta.model or "unknown",
         "board": kernel.board if kernel else snap.meta.board or "unknown",
-        "firmware": kernel.version if kernel else snap.meta.firmware or "unknown",
+        # ``kernel.version`` is empty on modern OpenWrt (the release is in
+        # ``meta.firmware``/``kernel.release``), so fall back when it is blank.
+        "firmware": (
+            (kernel.version if kernel else None) or snap.meta.firmware or "unknown"
+        ),
         "kernel": kernel.kernel if kernel else "unknown",
         "architecture": kernel.architecture if kernel else "unknown",
         "uptime_seconds": float(snap.cpu.uptime_seconds) if snap.cpu else None,

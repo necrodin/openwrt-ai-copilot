@@ -273,11 +273,12 @@ class RouterDiagnosisEngine:
         ]
 
     def _check_missing_wifi(self, snapshot: RouterSnapshot) -> list[Finding]:
-        interfaces = snapshot.network or []
-        if not interfaces:
-            return []
         wifi = snapshot.wifi
-        if wifi is not None and (wifi.get("radios") or wifi.get("client_count")):
+        if wifi is None:
+            # WiFi data was not collected for this question — "unknown", not
+            # "missing". Never diagnose missing WiFi from absent data.
+            return []
+        if wifi.get("radios") or wifi.get("client_count"):
             return []
         return [
             Finding(

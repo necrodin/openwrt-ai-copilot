@@ -14,7 +14,7 @@ from typing import Any
 from app.services.router_context_cache import RouterContextCache
 from app.services.router_tool_executor import RouterToolExecutor, RouterToolResult
 
-_SECTION_NAMES = ("system", "cpu", "memory", "storage", "network")
+_SECTION_NAMES = ("system", "cpu", "memory", "storage", "network", "wifi")
 
 
 @dataclass(frozen=True)
@@ -106,7 +106,8 @@ class RouterSnapshotService:
         memory = snapshot.memory or {}
         storage = snapshot.storage or []
         network = snapshot.network or []
-        if not (system or cpu or memory or storage or network):
+        wifi = snapshot.wifi or {}
+        if not (system or cpu or memory or storage or network or wifi):
             return None
         selected = set(intents) if intents else set(_SECTION_NAMES)
 
@@ -166,6 +167,19 @@ class RouterSnapshotService:
                 lines.append(
                     f"- **{iface.get('name', '?')}** ({status}) — {ip} — "
                     f"proto: {iface.get('proto') or '—'}"
+                )
+
+        if "wifi" in selected and wifi:
+            lines.append("## Wireless")
+            client_count = wifi.get("client_count") or 0
+            lines.append(f"- Associated stations: {client_count}")
+            for radio in wifi.get("radios") or []:
+                band = radio.get("band") or "?"
+                ssid = radio.get("ssid") or "?"
+                stations = radio.get("station_count") or 0
+                lines.append(
+                    f"- **{radio.get('name', '?')}** ({band}) — SSID {ssid} · "
+                    f"{stations} station{'' if stations == 1 else 's'}"
                 )
 
         return "\n".join(lines)

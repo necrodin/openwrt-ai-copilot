@@ -402,7 +402,7 @@ def test_high_memory_chat_reports_finding_and_recommendation() -> None:
     assert "[URGENT] Optimize memory usage" in context
 
 
-def test_missing_wan_chat_reports_wan_and_wifi_findings() -> None:
+def test_missing_wan_chat_reports_wan_and_not_false_wifi() -> None:
     seen: dict = {}
     with _chat_client(seen, _router_update(_missing_wan_snapshot())) as client:
         response = client.post(
@@ -415,8 +415,29 @@ def test_missing_wan_chat_reports_wan_and_wifi_findings() -> None:
     assert "## Network Interfaces" in context
     assert "[WARNING] Missing WAN interface" in context
     assert "[HIGH] Restore WAN connectivity" in context
+    # The router has working WiFi and this network question does not collect
+    # wifi data: it must NOT be diagnosed as missing.
+    assert "Missing WiFi" not in context
+    assert "Enable WiFi radios" not in context
+
+
+def test_wifi_collected_and_absent_reports_missing_wifi() -> None:
+    """When wifi data IS collected for the question and shows zero radios, the
+    'Missing WiFi' finding legitimately appears."""
+    from router_agent.model import WifiInfo
+
+    snapshot = _missing_wan_snapshot()
+    snapshot.wifi = WifiInfo(radios=[], networks=[])
+    seen: dict = {}
+    with _chat_client(seen, _router_update(snapshot)) as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={"session_id": "e2e-wifi", "message": "show wireless clients"},
+        )
+    assert response.status_code == 200
+    context = response.json()["router_context"]
+    assert context is not None
     assert "[WARNING] Missing WiFi" in context
-    assert "[HIGH] Enable WiFi radios" in context
 
 
 # --------------------------------------------------------------------------- #
@@ -443,9 +464,11 @@ def test_multiple_findings_chat_recommendations_priority_ordered() -> None:
         "Critical memory utilization",
         "Critical storage utilization",
         "Missing WAN interface",
-        "Missing WiFi",
     ):
         assert title in context
+    # The snapshot has working WiFi; this question does not collect wifi, so it
+    # must never be flagged as missing.
+    assert "Missing WiFi" not in context
 
     recommendations = context.split("## Recommendations", 1)[1]
     titles = (
@@ -453,7 +476,6 @@ def test_multiple_findings_chat_recommendations_priority_ordered() -> None:
         "Optimize memory usage",
         "Free storage capacity",
         "Restore WAN connectivity",
-        "Enable WiFi radios",
     )
     positions = [recommendations.index(title) for title in titles]
     assert positions == sorted(positions)
