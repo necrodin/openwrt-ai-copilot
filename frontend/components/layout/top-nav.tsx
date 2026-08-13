@@ -134,7 +134,7 @@ export function TopNav() {
   const pathname = usePathname();
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b bg-background/80 px-3 backdrop-blur">
+    <header className="relative z-50 flex h-14 shrink-0 items-center gap-3 border-b bg-background/80 px-3 backdrop-blur">
       <Link
         href="/dashboard"
         aria-label={SITE_CONFIG.name}
