@@ -17,6 +17,7 @@ from collections.abc import Callable
 from ai.core.models import ChatMessage, ChatRequest, ChatResponse
 from ai.core.protocols import CAPABILITY_CHAT
 from app.services.router_context_cache import RouterContextCache
+from app.services.router_context_policy import build_focused_context, select_sections
 from app.services.router_diagnosis import RouterDiagnosisEngine
 from app.services.router_intent_detector import RouterIntentDetector
 from app.services.router_manager import RegisteredRouter, RouterManager, UnknownRouterError
@@ -218,21 +219,54 @@ class ChatService:
             )
         return provider
 
-    def system_prompt(self) -> str:
+    def _focused_context(self, message: str) -> dict | None:
+        """Build a minimal, pruned router context for ``message``.
+
+        Only the snapshot sections the question actually needs are included
+        (deterministic keyword routing); unknown/general questions get a small
+        bounded fallback. Never sends the full raw snapshot.
+        """
         snapshot = self._snapshot()
         if snapshot is None:
+            return None
+        sections = select_sections(message)
+        return build_focused_context(snapshot, sections)
+
+    def system_prompt(self, context: dict | None = None) -> str:
+        """Build the system prompt from a router context.
+
+        ``context`` is the focused, pruned router context for the current
+        question (see :meth:`_focused_context`). When ``context`` is ``None``
+        and a snapshot exists, the full snapshot is rendered — retained for
+        direct callers/backward compatibility; the chat path always supplies a
+        focused context so the raw snapshot is never sent to the model.
+        """
+        snapshot = self._snapshot()
+        if context is None:
+            if snapshot is not None:
+                rendered = json.dumps(snapshot.model_dump(mode="json"), indent=2)
+                collected = snapshot.meta.collected_at.isoformat()
+                return (
+                    SYSTEM_PROMPT
+                    + f"\n\nROUTER STATE (collected at {collected}):\n```json\n{rendered}\n```"
+                )
             return (
                 SYSTEM_PROMPT + "\n\nROUTER STATE: No router state is available — the data "
                 "feed is not connected.\n"
                 "If the user asks anything about the router, tell them router "
                 "data is unavailable and do not invent any values."
             )
-        rendered = json.dumps(snapshot.model_dump(mode="json"), indent=2)
-        collected = snapshot.meta.collected_at.isoformat()
-        return (
-            SYSTEM_PROMPT
-            + f"\n\nROUTER STATE (collected at {collected}):\n```json\n{rendered}\n```"
-        )
+        if not context:
+            return (
+                SYSTEM_PROMPT + "\n\nROUTER STATE: No router state is available — the data "
+                "feed is not connected.\n"
+                "If the user asks anything about the router, tell them router "
+                "data is unavailable and do not invent any values."
+            )
+        rendered = json.dumps(context, indent=2)
+        collected = snapshot.meta.collected_at.isoformat() if snapshot else None
+        header = f"ROUTER STATE (collected at {collected}):" if collected else "ROUTER STATE:"
+        return SYSTEM_PROMPT + f"\n\n{header}\n```json\n{rendered}\n```"
 
     def compose(
         self,
@@ -243,13 +277,14 @@ class ChatService:
         temperature: float | None = None,
         router_context: str | None = None,
     ) -> ChatRequest:
-        """Build the full request: system prompt + stored history + user message.
+        """Build the full request: focused system prompt + history + user message.
 
         ``router_context`` (markdown from the router context service) is inserted
         into the system prompt inside a dedicated section when the request is
-        router-aware; when omitted the system prompt is unchanged.
+        router-aware. The system prompt's ROUTER STATE is a minimal, pruned
+        subset selected for ``message`` — never the full snapshot.
         """
-        system = self.system_prompt()
+        system = self.system_prompt(self._focused_context(message))
         if router_context:
             system = (
                 f"{system}\n\n### Router Context\n{router_context}\n"

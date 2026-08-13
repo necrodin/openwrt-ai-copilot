@@ -502,7 +502,9 @@ def test_compose_injects_router_context_section() -> None:
     assert section.strip() == "# Router markdown"
 
 
-def test_compose_without_router_context_keeps_prompt_unchanged() -> None:
+def test_compose_without_router_context_uses_focused_prompt() -> None:
+    """``compose`` builds a focused (bounded) system prompt for the message —
+    never the full raw snapshot (M2 context minimization)."""
     service = ChatService(ProviderManager({}), lambda: SNAPSHOT)
     plain = service.compose(message="hi", history=[])
     with_context = service.compose(
@@ -510,6 +512,11 @@ def test_compose_without_router_context_keeps_prompt_unchanged() -> None:
         history=[],
         router_context="# Router markdown",
     )
-    assert plain.messages[0].content == service.system_prompt()
     assert "### Router Context" not in plain.messages[0].content
     assert "### Router Context" in with_context.messages[0].content
+    # The system prompt carries a bounded fallback context, not the whole
+    # snapshot: sections such as packages (present in the simulated snapshot)
+    # must not reach the prompt for a general question.
+    assert "ROUTER STATE" in plain.messages[0].content
+    assert '"packages"' not in plain.messages[0].content
+    assert '"logs"' not in plain.messages[0].content
