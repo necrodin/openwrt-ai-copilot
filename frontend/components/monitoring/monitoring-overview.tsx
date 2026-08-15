@@ -49,41 +49,45 @@ export function MonitoringOverview({ snapshot }: Props) {
   const stats: Array<{ label: string; value: string; sub?: string; percent?: number | null }> = [
     {
       label: "CPU usage",
-      value: cpu?.usage_percent != null ? `${Math.round(cpu.usage_percent)}%` : "—",
+      value: cpu?.usage_percent != null ? `${Math.round(cpu.usage_percent)}%` : "N/A",
       sub: `${cpu?.cores ?? 1} core${(cpu?.cores ?? 1) === 1 ? "" : "s"}`,
       percent: cpu?.usage_percent ?? null,
     },
     {
       label: "Load average",
-      value: cpu ? `${cpu.load_1.toFixed(2)} / ${cpu.load_5.toFixed(2)} / ${cpu.load_15.toFixed(2)}` : "—",
+      value: cpu ? `${cpu.load_1.toFixed(2)} / ${cpu.load_5.toFixed(2)} / ${cpu.load_15.toFixed(2)}` : "N/A",
       sub: "1 · 5 · 15 min",
     },
     {
       label: "Memory usage",
-      value: memory ? `${formatBytes(memory.used_kb * 1024)} / ${formatBytes(memory.total_kb * 1024)}` : "—",
+      value: memory ? `${formatBytes(memory.used_kb * 1024)} / ${formatBytes(memory.total_kb * 1024)}` : "N/A",
       sub: memPercent != null ? `${memPercent.toFixed(1)}% used` : undefined,
       percent: memPercent,
     },
     {
       label: "Swap",
-      value: memory && memory.swap_total_kb ? `${formatBytes((memory.swap_used_kb ?? 0) * 1024)} / ${formatBytes(memory.swap_total_kb * 1024)}` : "—",
+      value: memory && memory.swap_total_kb ? `${formatBytes((memory.swap_used_kb ?? 0) * 1024)} / ${formatBytes(memory.swap_total_kb * 1024)}` : "N/A",
       sub: memory && memory.swap_total_kb && swapPercent != null ? `${swapPercent.toFixed(1)}% used` : "no swap",
       percent: swapPercent,
     },
     {
       label: "Storage",
-      value: snapshot.storage.length ? `${formatBytes(snapshot.storage[0].used_bytes)} / ${formatBytes(snapshot.storage[0].total_bytes)}` : "—",
+      value: snapshot.storage.length ? `${formatBytes(snapshot.storage[0].used_bytes)} / ${formatBytes(snapshot.storage[0].total_bytes)}` : "N/A",
       sub: snapshot.storage.length ? `${snapshot.storage.length} mount${snapshot.storage.length === 1 ? "" : "s"}` : undefined,
     },
     {
       label: "Flash usage",
-      value: flash ? `${formatBytes(flash.used_bytes)} / ${formatBytes(flash.total_bytes)}` : "—",
-      sub: flash ? `${flash.mountpoint} · ${flash.use_percent?.toFixed(1) ?? "?"}%` : undefined,
+      value: flash ? `${formatBytes(flash.used_bytes)} / ${formatBytes(flash.total_bytes)}` : "N/A",
+      sub: flash
+        ? flash.use_percent != null
+          ? `${flash.mountpoint} · ${flash.use_percent.toFixed(1)}%`
+          : `${flash.mountpoint} · N/A`
+        : undefined,
       percent: flash?.use_percent ?? null,
     },
     {
       label: "Uptime",
-      value: cpu ? formatDuration(cpu.uptime_seconds) : "—",
+      value: cpu ? formatDuration(cpu.uptime_seconds) : "N/A",
       sub: cpu ? "since boot" : undefined,
     },
   ];
@@ -96,7 +100,7 @@ export function MonitoringOverview({ snapshot }: Props) {
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {stat.label}
             </p>
-            <p className="truncate text-base font-semibold">{stat.value || "—"}</p>
+            <p className="truncate text-base font-semibold">{stat.value || "N/A"}</p>
             {stat.sub ? <p className="truncate text-xs text-muted-foreground">{stat.sub}</p> : null}
             {stat.percent != null ? (
               <Gauge value={stat.percent} tone={tone(stat.percent)} />

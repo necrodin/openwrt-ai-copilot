@@ -1,21 +1,78 @@
-MIT License
+OpenWrt AI Copilot Personal Non-Commercial License
 
-Copyright (c) 2026 Necrodin and other contributors
+Copyright (c) 2026 Necrodin and the OpenWrt AI Copilot contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Version 1.0.0
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This is a proprietary, non-commercial license. It is NOT an open-source
+license, and it is NOT approved by the Open Source Initiative (OSI).
+
+THIS SOFTWARE IS PROVIDED FOR PERSONAL, NON-COMMERCIAL USE ONLY.
+
+---------------------------------------------------------------------------
+1. PERMISSION
+
+Subject to the terms of this license, permission is hereby granted to any
+individual to:
+
+  (a) download, install, and use the software for personal, private, and
+      non-commercial purposes;
+
+  (b) modify the software for personal use;
+
+  (c) copy and redistribute the software, and modified versions of it, for
+      non-commercial, personal, or community purposes, provided that the
+      copyright notice, this license text, and this permission notice are
+      preserved in full in every copy or substantial portion.
+
+---------------------------------------------------------------------------
+2. RESTRICTIONS
+
+The following are strictly prohibited:
+
+  (a) commercial use of the software in any form, whether or not for profit;
+
+  (b) selling the software, or modified or unmodified copies of it;
+
+  (c) offering the software, or a service built on it, as a paid service or
+      SaaS;
+
+  (d) using the software as part of any commercial service or product for the
+      purpose of generating revenue;
+
+  (e) redistribution of the software for commercial gain;
+
+  (f) removing, altering, or obscuring the copyright and license notices and
+      presenting the software, or any portion of it, as your own work;
+
+  (g) sublicensing the software under any other terms.
+
+No rights are granted for commercial use beyond those explicitly stated in
+Section 1. Any use not expressly permitted by this license is prohibited.
+
+---------------------------------------------------------------------------
+3. WARRANTY DISCLAIMER
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---------------------------------------------------------------------------
+4. TERMINATION
+
+This license is effective until terminated. This license shall terminate
+automatically, without notice, if you breach any of its terms. Upon
+termination, your rights under this license cease, and you must stop using the
+software and destroy all copies in your possession or control.
+
+---------------------------------------------------------------------------
+5. PRESERVATION OF NOTICES
+
+Any copy or redistribution of the software, modified or unmodified, must
+retain the full copyright notice, this license text, and this permission
+notice. This license must accompany the software in any copy or substantial
+portion.

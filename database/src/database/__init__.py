@@ -4,7 +4,7 @@ Owns the SQLite engine, session factory, schema (SQLAlchemy ORM models), and
 (plan) migrations. Nothing in this package imports application or AI code.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 from database.schema import Base, SystemMetadata
 from database.session import SessionLocal, engine, init_db

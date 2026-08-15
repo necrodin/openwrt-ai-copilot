@@ -1,136 +1,114 @@
 # OpenWrt AI Copilot
 
-<p align="center">
-  <img src="assets/banner.svg" alt="OpenWrt AI Copilot banner" width="640" />
-</p>
+A self-hostable, provider-independent AI copilot for managing OpenWrt routers
+and small fleets. Ask questions about your network in natural language, watch
+live router state, and manage devices over SSH — all from one web UI.
 
-<p align="center">
-  <a href="https://opensource.org/licenses/MIT"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
-  <img alt="Python 3.12+" src="https://img.shields.io/badge/Python-3.12+-blue.svg" />
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.x-blue.svg" />
-  <a href="https://nextjs.org"><img alt="Next.js" src="https://img.shields.io/badge/UI-Next.js-black.svg" /></a>
-  <a href="https://fastapi.tiangolo.com"><img alt="FastAPI" src="https://img.shields.io/badge/API-FastAPI-teal.svg" /></a>
-  <a href="https://github.com/necrodin/openwrt-ai-copilot"><img alt="GitHub" src="https://img.shields.io/badge/GitHub-necrodin%2Fopenwrt--ai--copilot-181717.svg?logo=github" /></a>
-</p>
+**Version:** 1.0.0
 
-A production-grade, provider-independent AI copilot for managing OpenWrt router
-fleets. Ask questions about your network in natural language, diagnose
-connectivity issues, and — under strict human approval — propose and apply
-validated configuration changes.
+## Overview
 
-**The AI layer is fully provider-independent.** Supported providers (Ollama,
-NVIDIA NIM, OpenAI, OpenRouter, LM Studio, vLLM) are interchangeable adapters,
-never hard dependencies. Swapping Ollama for OpenAI is a config change, not a
-code change.
+OpenWrt AI Copilot connects to your OpenWrt router over SSH, reads live device
+state (system, CPU, memory, storage, network, wireless, services, packages,
+logs), and exposes it through a clean web interface and HTTP API. An embedded
+AI copilot answers natural-language questions grounded in the live router
+state — it never invents data. The AI backend is fully provider-independent:
+you bring the model provider you already use, and its API key is stored
+encrypted on your own server.
 
-## Screenshots
+The application is free for personal, non-commercial use under the
+[OpenWrt AI Copilot Personal Non-Commercial License](LICENSE).
 
-<p align="center">
-  <img src="assets/screenshots/placeholder.svg" alt="Dashboard screenshot (placeholder)" width="640" />
-</p>
+## Features
 
-> Screenshots are placeholders and will be replaced as the UI stabilizes.
+- **AI Copilot.** Streaming natural-language chat grounded in the live router
+  snapshot, with per-reply router-context disclosure, model selection, and a
+  deterministic diagnosis and recommendation engine.
+- **Provider-independent AI backend.** Chat, embeddings, vision, and rerank run
+  through a capability-based provider abstraction. DeepSeek, OpenAI,
+  OpenRouter, Ollama, Anthropic, Gemini, Groq, Together, Mistral, xAI, Cohere,
+  Perplexity, Fireworks, Cerebras, Azure OpenAI, NVIDIA NIM, LM Studio, vLLM,
+  and any custom OpenAI-compatible endpoint are supported and swappable via
+  configuration.
+- **OpenWrt router management.** System configuration, time/NTP, firmware
+  information, backups, and power actions over SSH.
+- **System monitoring.** Live dashboard with CPU, load, memory, storage, network
+  interfaces, temperature, and processes, delivered over WebSocket (with REST
+  polling fallback).
+- **Network diagnostics.** Network interfaces and routing, firewall, DHCP, DNS,
+  wireless radios and stations, services, VPN tunnels, connected clients, and
+  system logs.
+- **Package management.** Installed-package inventory with available upgrades,
+  repository feeds, search, and install/remove/upgrade actions (apk and opkg).
+- **Security and network information.** Connection state, per-device details,
+  and a health-score view of the router.
+- **Multi-provider support.** Configure several AI providers side by side, set
+  one as the default, and switch per conversation.
+- **Model discovery.** Discover a provider's model list from its endpoint using
+  the typed or saved credential; manual model entry always remains available.
+- **Encrypted API credentials.** Provider API keys and router credentials are
+  encrypted at rest and are never written to configuration files, returned by
+  the API, or exposed to the browser.
+- **Router fleet support.** Save multiple routers, each with its own live
+  connection, dashboard, and management surfaces.
 
 ## Architecture
 
-<p align="center">
-  <img src="assets/architecture/placeholder.svg" alt="Architecture diagram (placeholder)" width="640" />
-</p>
+The system has three layers:
 
-> The full architecture is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **Frontend** — a Next.js 15 / React 19 / TypeScript application: dashboard,
+  AI chat (streaming), router management, and provider configuration. It talks
+  to the backend over the HTTP API and a WebSocket dashboard stream.
+- **Backend** — a FastAPI control plane that handles authentication, the live
+  dashboard, the AI chat pipeline, provider configuration, and router
+  management over SSH. Router writes are gated by a safety policy
+  (`allow` / `require_approval` / `deny`).
+- **Libraries and router agent** — provider-agnostic Python packages
+  (`ai`, `providers`, `rag`, `vision`, `vectorstore`, `knowledge`, `database`)
+  and an SSH-based router agent (`ubus`/`UCI`) that collects device state with
+  pooling and retries.
 
-## What's in v1.0
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full description.
 
-- **Router Agent** (`router-agent/`) — a data-collection daemon that reads live
-  router state over SSH (via `ubus`/`UCI`), LuCI JSON-RPC, or a local collector.
-  Each collector reports independently; a failed collector never aborts the pass.
-- **Live dashboard** — a WebSocket-driven view of router state (system, CPU,
-  memory, storage, network interfaces) at `/dashboard`.
-- **Router-aware AI chat** — at `/chat`. Every turn is grounded in the latest
-  router snapshot (never invented), with automatic intent detection
-  (`system`, `cpu`, `memory`, `storage`, `network`), tool-backed answers,
-  streaming, chat history, and Markdown rendering. A per-category availability
-  manifest (`available`/`not_available`/`unknown`/`error`) is injected into the
-  system prompt: answers may only report values present in the live router data,
-  and when a category has no data the Copilot says so explicitly rather than
-  estimating or reusing earlier values.
-- **Diagnosis & recommendations** — deterministic engines that flag issues
-  (e.g. missing WAN, high load, memory pressure, reboots) and propose
-  remediation, served with the router status.
-- **Embedding platform** — provider-independent `EmbeddingFactory` with
-  batching, retries, timeouts, and token-usage accounting.
-- **Vector database layer** — four interchangeable backends behind one
-  interface: SQLite (offline reference), Chroma, Qdrant, FAISS.
-- **Knowledge platform** — `source → loader → parser → extractor → chunker →
-  indexer` ingestion for Markdown, HTML, PDF, TXT, JSON, YAML, and XML.
-- **Retrieval (RAG)** — retrieval core + `rag.ai` integration: embed → retrieve
-  → rerank → ground → answer with citations and conversation memory.
-- **Provider administration API** — list providers, probe health, detect
-  capabilities, read token usage, list models.
+## Requirements
 
-## Technology stack
+Tested on:
 
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS v4, shadcn/ui |
-| Backend | FastAPI, Python 3.12+ |
-| Database | SQLite (via SQLAlchemy 2) |
-| AI layer | Provider-agnostic Python packages (`ai`, `providers`, `rag`, `vision`, `vectorstore`, `knowledge`) |
-| Router data | `router-agent` over SSH / LuCI JSON-RPC / local |
-| Deployment | Docker, Docker Compose |
+- **Backend host** — Python 3.12+ on Linux or macOS.
+- **Frontend build** — Node.js 20+.
+- **Router** — OpenWrt with SSH (dropbear/OpenSSH) enabled and root access.
+  Verified against OpenWrt 25.12 (apk package manager) and OpenWrt 22/23
+  (opkg); SSH access over the LAN is sufficient.
 
-## Repository layout
+## Quick Start
 
-```
-openwrt-ai/
-├── frontend/          Next.js web UI (home, live dashboard, AI chat)
-├── backend/           FastAPI control plane (app package)
-├── ai/                Provider-agnostic AI core: protocols, models, registry
-├── providers/         Provider adapters (ollama, nim, openai, openrouter, lmstudio, vllm, nvembed)
-├── rag/               Retrieval core (retriever, context, prompt, memory, tokens, cache, rerank, rag.ai)
-├── vision/            Vision abstraction (multimodal chat re-exports)
-├── vectorstore/       Provider-independent vector DB layer (sqlite, qdrant, chroma, faiss)
-├── knowledge/         Provider-independent knowledge platform (sources, parsers, chunkers, indexers)
-├── database/          SQLite schema, engine, session helpers
-├── router-agent/      On-device agent (data collection over SSH / ubus / LuCI)
-├── docker/            Docker Compose topologies
-├── tests/             Unit + e2e integration tests (pytest)
-└── docs/              Architecture + sprint documentation
-```
-
-## Quickstart
-
-### 1. Backend (Python 3.12+)
+### Backend
 
 ```bash
-make install          # create .venv, install all python packages, npm install
-make dev-backend      # uvicorn on http://localhost:8000
+make install        # create .venv, install Python packages, install frontend deps
+make dev-backend    # uvicorn on http://localhost:8000
 ```
 
-Verify: `curl http://localhost:8000/api/health`
-
-### 2. Frontend
+### Frontend
 
 ```bash
-make dev-frontend     # Next.js dev server on http://localhost:3000
+make dev-frontend   # Next.js dev server on http://localhost:3000
 ```
 
-The frontend proxies `/api/*` to the backend (default `http://localhost:8000`).
-The live dashboard is at `/dashboard`; the AI chat is at `/chat`.
+Open http://localhost:3000 and complete the first-run setup (create the admin
+account), then add your router and AI provider.
 
-### 3. Tests & linting
+### Development
 
 ```bash
-make test             # pytest (tests/)
-make lint             # ruff check + format
-make format           # ruff format
+make test           # pytest (tests/)
+make lint           # ruff check + format check
+make format         # ruff format
+cd frontend && npm run lint && npx tsc --noEmit   # frontend lint + types
+cd frontend && node --test tests/*.test.mjs       # frontend tests
 ```
 
-The e2e suite (`tests/e2e/test_router_pipeline.py`) exercises the full router
-pipeline — intent detection, tool execution, diagnosis, recommendations, RAG
-grounding, and caching — with a mocked AI transport.
-
-### 4. Docker (full stack)
+### Docker
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build
@@ -139,48 +117,120 @@ docker compose -f docker/docker-compose.yml up --build
 - Frontend: http://localhost:3000
 - Backend API docs: http://localhost:8000/api/docs
 
-## Public API (prefix `/api`)
+## OpenWrt Setup
+
+1. On the router, enable SSH and set a root password (or install an SSH key).
+2. From the application, add the router by IP/hostname, port, username, and
+   password or key.
+3. The backend connects over SSH and reads state via `ubus` and `uci`. Only the
+   credentials you provide are used; router passwords and private keys are
+   encrypted at rest.
+
+## AI Providers
+
+Each AI provider is configured with:
+
+- **Provider type** — DeepSeek, OpenAI, OpenRouter, Ollama, a custom
+  OpenAI-compatible endpoint, and many others.
+- **Endpoint (base URL)** — pre-filled with the provider's default; custom
+  endpoints can use any OpenAI-compatible URL.
+- **API key** — entered once. It is encrypted server-side and never written to
+  `providers.yaml`, returned by the API, or shown in the UI. Editing a provider
+  with an empty key field keeps the existing credential; entering a new key
+  replaces it.
+- **Model** — chosen manually or discovered from the endpoint (model discovery
+  uses the typed key, or the saved credential when editing with an empty key
+  field).
+- **Connection test** — verifies the exact configured endpoint, credential, and
+  model with a real streaming completion before you save.
+
+## Configuration
+
+Runtime configuration is done through the web UI (Settings → AI Providers and
+router onboarding). Advanced settings are read from environment variables and
+`.env` files:
+
+- `PROVIDER_CONFIG_FILE` — provider configuration file (default `providers.yaml`).
+- `DATABASE_URL` — SQLite database path.
+- `AUTH_ADMIN_API_KEY` / `AUTH_READONLY_API_KEY` — programmatic API keys.
+- `AUTH_VAULT_KEY` — encryption key for the credential vault (auto-generated
+  and persisted when not set).
+- `ROUTER_DEVICE_HOST` / `ROUTER_DEVICE_PORT` / `ROUTER_USERNAME` /
+  `ROUTER_SSH_KEY` / `ROUTER_PASSWORD` — default router connection.
+
+See `frontend/.env.example` and `backend/app/core/config.py` for the full list.
+
+## API
+
+The public API lives under `/api/v1` (interactive docs at `/api/docs`).
 
 | Endpoint | Description |
 |---|---|
-| `GET /health` | Liveness probe (`status`, `service`, `version`, `environment`) |
-| `GET /ready` | Readiness probe |
-| `GET /router/status` | Merged router status: connection state + snapshot + diagnosis + recommendations |
-| `GET /router/info` | Router identity (hostname, model, board, firmware, kernel, uptime) |
-| `GET /router/context` | Structured router context used to ground chat answers |
-| `GET /dashboard/latest` | Latest dashboard update (`DashboardUpdate`) |
-| `WS /dashboard/ws` | Live dashboard push |
-| `POST /chat` | Non-streaming chat reply (`{session_id, message, provider?, model?}`) |
-| `POST /chat/stream` | Streaming reply over Server-Sent Events (`delta` / `done` / `error`) |
-| `GET /chat/history` | Persisted turns for a session (`?session_id=`) |
-| `GET /chat/sessions` | Known sessions, newest first |
-| `GET /providers` | Configured providers with static capability summary |
-| `GET /providers/{name}` | Single provider summary |
-| `GET /providers/{name}/health` | Provider reachability probe |
-| `GET /providers/{name}/capabilities` | Detected capabilities |
-| `GET /providers/{name}/usage` | Cumulative token-usage counters |
-| `GET /providers/{name}/models` | Models the provider serves |
+| `GET /api/v1/health` | Liveness probe (`status`, `service`, `version`, `environment`) |
+| `GET /api/v1/ready` | Readiness probe |
+| `POST /api/v1/auth/login` | Browser session login |
+| `GET /api/v1/dashboard/latest` | Latest dashboard update |
+| `WS /api/v1/dashboard/ws` | Live dashboard stream |
+| `POST /api/v1/chat/stream` | Streaming AI reply over Server-Sent Events |
+| `GET /api/v1/chat/sessions` | Chat sessions |
+| `GET /api/v1/router/management/system` | System configuration snapshot |
+| `GET /api/v1/router/management/packages` | Installed packages and upgrades |
+| `GET /api/v1/router/management/packages/search` | Repository package search |
+| `GET /api/v1/providers` | Configured AI providers |
+| `GET /api/v1/providers/types` | Supported provider types |
+| `POST /api/v1/providers` | Add a provider |
+| `POST /api/v1/providers/discover-models` | Discover models for a draft provider |
+| `POST /api/v1/providers/test` | Test a draft provider configuration |
+| `GET /api/v1/setup/status` | First-run setup state |
+
+## Security
+
+- **Provider API keys** are encrypted (Fernet, AES-128-CBC + HMAC-SHA256) into
+  `provider_credentials.json` and are never stored in `providers.yaml`, never
+  logged, and never returned by the API. The web UI only ever sees a boolean
+  `has_credential`.
+- **Router credentials** (password / SSH key) are encrypted at rest in a
+  server-side credential vault and are never returned by the API.
+- **Authentication** uses server-side browser sessions with role-scoped
+  permissions (admin / read-only), plus optional programmatic API keys.
+- **Router safety** — every router write is gated by the `RouterActionGuard`
+  policy; the copilot never changes a device without the configured approval
+  rules.
+
+## Troubleshooting
+
+- **Router unreachable in the dashboard.** Verify SSH is enabled on the router
+  and that the backend host can reach the router's SSH port. Check the
+  connection badge on the System page.
+- **Package repository search says the index is unavailable.** Run "Update
+  feeds" on the Packages page (the app also auto-refreshes a missing index on
+  search). Confirm the router can reach its configured package feeds.
+- **Provider connection test fails.** Confirm the base URL, API key, and model
+  are correct for the provider type. The test distinguishes endpoint, auth,
+  model, and rate-limit failures.
+- **System values show N/A.** Some fields are not reported by every router/board;
+  N/A means the router did not provide that value.
+
+## Roadmap
+
+Planned future work:
+
+- Deeper WiFi snapshot collection across more hardware.
+- Additional router management actions behind the existing approval policy.
+- Multi-turn conversational memory in the router-aware chat.
+- Support for more OpenWrt releases and package managers.
+
+## License
+
+This software is provided under the **OpenWrt AI Copilot Personal
+Non-Commercial License**. Personal, private, non-commercial use is permitted;
+commercial use, resale, and offering the software as a paid service are
+prohibited. See [LICENSE](LICENSE) for the full terms.
 
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system architecture
-- [docs/SPRINT-1.md](docs/SPRINT-1.md) — Sprint 1 scope and roadmap
-- [docs/SPRINT-2.md](docs/SPRINT-2.md) — provider abstraction layer
-- [docs/SPRINT-4.md](docs/SPRINT-4.md) — live dashboard
-- [docs/SPRINT-5.md](docs/SPRINT-5.md) — AI chat
-- [docs/SPRINT-6.md](docs/SPRINT-6.md) — embedding platform
-- [docs/SPRINT-7.md](docs/SPRINT-7.md) — vector database layer
-- [docs/SPRINT-8.md](docs/SPRINT-8.md) — knowledge platform
-- [docs/SPRINT-9A.md](docs/SPRINT-9A.md) — retrieval core
-- [docs/SPRINT-9B.md](docs/SPRINT-9B.md) — retrieval → AI chat integration
-- [docs/SPRINT-24A.md](docs/SPRINT-24A.md) — end-to-end router pipeline tests
-- [docs/SPRINT-24B.md](docs/SPRINT-24B.md) — unified router status contract
-- [docs/SPRINT-25A.md](docs/SPRINT-25A.md) — v1.0 release audit and cleanup
+- [docs/FEATURE_ROUTER_ONBOARDING.md](docs/FEATURE_ROUTER_ONBOARDING.md) — router onboarding
 - [docs/README.md](docs/README.md) — documentation index
-- [CHANGELOG.md](CHANGELOG.md) — full sprint history
-- [RELEASE_NOTES_v1.md](RELEASE_NOTES_v1.md) — v1.0 release notes
-
-## License
-
-Open-source. MIT License — see [LICENSE](LICENSE). Free forever: no
-subscriptions, no licenses, no payments inside the application.
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [RELEASE_NOTES_v1.md](RELEASE_NOTES_v1.md) — v1.0.0 release notes

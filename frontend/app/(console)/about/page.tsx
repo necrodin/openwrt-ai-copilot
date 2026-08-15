@@ -105,10 +105,10 @@ export default function AboutPage() {
                 {info.appName}
               </FieldRow>
               <FieldRow icon={Package} label="Version">
-                {info.version}
+                {backend ? backend.version : info.version || "N/A"}
               </FieldRow>
               <FieldRow icon={Code2} label="Frontend Version">
-                {info.frontendVersion}
+                {info.frontendVersion || "N/A"}
               </FieldRow>
               <FieldRow icon={Server} label="Backend Version">
                 {backend ? backend.version : "…"}
@@ -119,11 +119,11 @@ export default function AboutPage() {
                     {info.gitCommit}
                   </code>
                 ) : (
-                  <span className="text-muted-foreground">not available</span>
+                  <span className="text-muted-foreground">N/A</span>
                 )}
               </FieldRow>
               <FieldRow icon={GitBranch} label="Build Date">
-                {info.buildDate ?? "not available"}
+                {info.buildDate || "N/A"}
               </FieldRow>
               <FieldRow icon={Code2} label="Environment">
                 {info.environment}
@@ -159,12 +159,14 @@ export default function AboutPage() {
             </dl>
             <div id="license" className="mt-6 rounded-md border bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
               <p className="mb-2 font-semibold text-foreground">
-                MIT License
+                {SITE_CONFIG.license}
               </p>
               <p>
-                Permission is hereby granted, free of charge, to any person
-                obtaining a copy of this software and associated documentation
-                files, to deal in the Software without restriction. See the
+                This software is provided for personal, non-commercial use only.
+                Commercial use, selling the software, and offering it as a paid
+                service are prohibited. Modification for personal use is
+                allowed; redistribution for non-commercial purposes is allowed
+                only if the license and attribution remain intact. See the
                 <a href={SITE_CONFIG.repositoryUrl} target="_blank" rel="noreferrer" className="ml-1 underline">
                   LICENSE
                 </a>

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openwrt-ai-router-agent"
-version = "0.6.0a1"
+version = "1.0.0"
 description = "OpenWrt AI Copilot — on-device router agent (data collection + SSH transport)"
 requires-python = ">=3.12"
 dependencies = [

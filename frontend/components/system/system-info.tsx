@@ -17,7 +17,7 @@ function Row({ label, value }: { label: string; value: string | null }) {
         {label}
       </span>
       <span className="min-w-0 truncate text-right text-sm font-medium" title={value ?? ""}>
-        {value || "—"}
+        {value || "N/A"}
       </span>
     </div>
   );
@@ -41,7 +41,10 @@ export function SystemInfoSection({ system }: Props) {
             label="Endianness"
             value={system.endianness ? `${system.endianness} endian` : null}
           />
-          <Row label="Flash size" value={formatBytes(system.flash_bytes)} />
+          <Row
+            label="Flash size"
+            value={system.flash_bytes != null ? formatBytes(system.flash_bytes) : null}
+          />
           <Row label="Root filesystem" value={system.root_filesystem} />
           <Row label="Overlay filesystem" value={system.overlay_filesystem} />
           <Row label="Board vendor" value={system.vendor} />

@@ -1,9 +1,9 @@
 """Router management service: real administrative operations over SSH.
 
-Provides the backend for Sprint 31's router console: package inventory with
-upgrade detection (apk/opkg), ``logread``-based system logs, destructive and
-restart actions with confirmation + progress, ``sysupgrade -b`` backups,
-``sysupgrade -r`` restores, and a compressed diagnostic bundle.
+Provides the router console backend: package inventory with upgrade detection
+(apk/opkg), ``logread``-based system logs, destructive and restart actions with
+confirmation + progress, ``sysupgrade -b`` backups, ``sysupgrade -r`` restores,
+and a compressed diagnostic bundle.
 
 Every operation opens its own short-lived SSH session built from the same
 credentials the snapshot feed uses (``SnapshotService.active_connection`` or
@@ -747,23 +747,27 @@ class RouterManagementService:
             ).stdout.strip()
             if marker:
                 mtime = self._pkg_run(
-                    f"stat -c %Y {self._sh_quote(marker)} 2>/dev/null",
+                    f"date -r {self._sh_quote(marker)} +%s 2>/dev/null "
+                    f"|| stat -c %Y {self._sh_quote(marker)} 2>/dev/null",
                     timeout=30.0,
                 ).stdout.strip()
                 if mtime.isdigit():
                     last_update = int(mtime)
         elif manager == "apk":
-            text = self._pkg_run("cat /etc/apk/repositories 2>/dev/null", timeout=30.0).stdout
-            for index, line in enumerate(text.splitlines()):
+            text = self._pkg_run(
+                "cat /etc/apk/repositories /etc/apk/repositories.d/* 2>/dev/null",
+                timeout=30.0,
+            ).stdout
+            for line in text.splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
                 feeds.append(
                     {
                         "type": "src",
-                        "name": f"repo{index}",
+                        "name": f"repo{len(feeds)}",
                         "url": line,
-                        "source": "/etc/apk/repositories",
+                        "source": "/etc/apk/repositories.d",
                     }
                 )
             marker = self._pkg_run(
@@ -772,7 +776,8 @@ class RouterManagementService:
             ).stdout.strip()
             if marker:
                 mtime = self._pkg_run(
-                    f"stat -c %Y {self._sh_quote(marker)} 2>/dev/null",
+                    f"date -r {self._sh_quote(marker)} +%s 2>/dev/null "
+                    f"|| stat -c %Y {self._sh_quote(marker)} 2>/dev/null",
                     timeout=30.0,
                 ).stdout.strip()
                 if mtime.isdigit():
@@ -807,40 +812,71 @@ class RouterManagementService:
             "detail": result.to_dict(),
         }
 
+    @staticmethod
+    def _parse_apk_search(text: str) -> tuple[list[dict[str, Any]], list[str]]:
+        """Parse ``apk search -v -q`` output into package dicts and warnings."""
+        data_lines, warnings = RouterManagementService._split_apk_stream(text)
+        results: list[dict[str, Any]] = []
+        for line in data_lines:
+            pkgid = line.split()[0]
+            name, version = RouterManagementService._split_apk_pkgid(pkgid)
+            if not name:
+                continue
+            description = ""
+            rest = line[len(pkgid):].strip()
+            if rest.startswith("-"):
+                description = rest[1:].strip()
+            elif " - " in rest:
+                description = rest.split(" - ", 1)[1].strip()
+            elif rest:
+                description = rest
+            results.append({"name": name, "version": version, "description": description})
+        return results, warnings
+
     def search_packages(self, query: str, limit: int = 200) -> dict[str, Any]:
-        """Search the repository for available packages by name or description."""
+        """Search the repository for available packages by name or description.
+
+        The ``repository`` object carries a structured ``status`` so the UI can
+        tell a genuine no-match apart from the distinct failure modes: the
+        package manager is missing, the repository index is empty/never updated,
+        or the repository metadata cannot be read. Raw diagnostics are kept
+        (truncated) under ``detail`` for debugging without exposing a wall of
+        stderr to the user.
+        """
         needle = query.strip()
         if not needle:
             raise RouterManagementError("A search query is required.")
         manager = self._pkg_manager()
         results: list[dict[str, Any]] = []
-        repository_state: dict[str, Any] = {"available": True, "reason": "ok"}
+        repository_state: dict[str, Any] = {
+            "status": "ok",
+            "available": True,
+            "reason": None,
+            "detail": [],
+        }
         if manager == "apk":
-            text = self._pkg_run(
-                f"apk search -v -q {self._sh_quote(needle)}",
-                timeout=60.0,
-            ).stdout
-            data_lines, warnings = RouterManagementService._split_apk_stream(text)
-            for line in data_lines:
-                pkgid = line.split()[0]
-                name, version = RouterManagementService._split_apk_pkgid(pkgid)
-                if not name:
-                    continue
-                description = ""
-                rest = line[len(pkgid):].strip()
-                if rest.startswith("-"):
-                    description = rest[1:].strip()
-                elif " - " in rest:
-                    description = rest.split(" - ", 1)[1].strip()
-                elif rest:
-                    description = rest
-                results.append({"name": name, "version": version, "description": description})
-            if not data_lines and warnings:
+            def _search(term: str) -> tuple[list[dict[str, Any]], list[str]]:
+                text = self._pkg_run(
+                    f"apk search -v -q {self._sh_quote(term)}",
+                    timeout=60.0,
+                ).stdout
+                return RouterManagementService._parse_apk_search(text)
+
+            results, warnings = _search(needle)
+            if not results and warnings:
+                # The index cache is missing/stale. Refresh the feeds once and
+                # retry so a search on a fresh router works without the operator
+                # first clicking "Update feeds".
+                refresh = self._pkg_run("apk update", timeout=180.0)
+                if refresh.ok:
+                    results, warnings = _search(needle)
+            if not results and warnings:
                 repository_state = {
+                    "status": "index-unavailable",
                     "available": False,
                     "reason": (
-                        "The package repository database is unavailable on the "
-                        "router (apk could not open its cache indexes)."
+                        "apk could not open its cache indexes on the router — "
+                        "run \"Update feeds\" to download the package lists."
                     ),
                     "detail": warnings[:3],
                 }
@@ -861,8 +897,26 @@ class RouterManagementService:
                     results.append(
                         {"name": name, "version": version, "description": description}
                     )
+            if not results and not self._opkg_list_text.strip():
+                repository_state = {
+                    "status": "repository-unavailable",
+                    "available": False,
+                    "reason": (
+                        "The repository index has not been downloaded on the "
+                        "router — run \"Update feeds\" to refresh the package lists."
+                    ),
+                    "detail": [],
+                }
         else:
-            raise RouterManagementError("No supported package manager found.")
+            repository_state = {
+                "status": "manager-unavailable",
+                "available": False,
+                "reason": (
+                    "No supported package manager (apk or opkg) was found on "
+                    "the router."
+                ),
+                "detail": [],
+            }
         return {
             "query": needle,
             "manager": manager,
@@ -3243,10 +3297,11 @@ class RouterManagementService:
         "echo '==localtime=='; date '+%Y-%m-%dT%H:%M:%S %z'; "
         "echo '==epoch=='; date +%s; "
         "echo '==uptime=='; cat /proc/uptime 2>/dev/null | cut -d' ' -f1; "
-        "echo '==endian=='; printf '\\x01\\x00' | od -An -tx2 | tr -d ' \\n'; echo; "
+        "echo '==endian=='; printf '\\x01\\x00' | hexdump -n 2 -e '1/2 \"%04x\"' 2>/dev/null "
+        "|| printf '\\x01\\x00' | od -An -tx2 2>/dev/null; echo; "
         "echo '==mtd=='; cat /proc/mtd 2>/dev/null; "
         "echo '==mounts=='; cat /proc/mounts 2>/dev/null; "
-        "echo '==dtnode=='; cat /proc/device-tree/model 2>/dev/null; "
+        "echo '==dtnode=='; tr -d '\\0' < /proc/device-tree/model 2>/dev/null; echo; "
         "echo '==uname=='; uname -s -r -m 2>/dev/null; "
         "echo '==ntpen=='; uci get system.ntp.enabled 2>/dev/null; "
         "echo '==ntpsrv=='; uci get system.ntp.server 2>/dev/null; "
@@ -3290,6 +3345,37 @@ class RouterManagementService:
                 fields[match.group(1)] = match.group(2)
         return fields
 
+    @staticmethod
+    def _first_line(text: str) -> str:
+        """Return the first non-blank line of ``text``, or ``""`` when empty."""
+        for line in text.splitlines():
+            if line.strip():
+                return line.strip()
+        return ""
+
+    @staticmethod
+    def _parse_mtd_flash_bytes(mtd_text: str) -> int | None:
+        """Sum the top-level MTD partition sizes into a total flash size.
+
+        On the standard OpenWrt layout ``kernel``, ``rootfs`` and
+        ``rootfs_data`` are nested *inside* the ``firmware`` partition, so they
+        must not be counted or the total would double-count overlapping flash.
+        """
+        nested = {"kernel", "rootfs", "rootfs_data"}
+        total: int | None = None
+        for line in mtd_text.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[0].startswith("mtd"):
+                name = parts[3].strip('"')
+                if name in nested:
+                    continue
+                try:
+                    size = int(parts[1], 16)
+                except ValueError:
+                    continue
+                total = (total or 0) + size
+        return total
+
     def system_info(self) -> dict[str, Any]:
         """Return a read-only snapshot of the router's system configuration."""
         transport = self.open()
@@ -3306,7 +3392,7 @@ class RouterManagementService:
                     board = {}
             board_release = board.get("release") or {}
 
-            hostname = gathered.get("hostname", "").splitlines()[0].strip() or ""
+            hostname = self._first_line(gathered.get("hostname", ""))
             architecture = release.get("DISTRIB_ARCH") or ""
             target = release.get("DISTRIB_TARGET") or ""
 
@@ -3323,14 +3409,7 @@ class RouterManagementService:
             else:
                 endianness = None
 
-            flash_bytes: int | None = None
-            for line in gathered.get("mtd", "").splitlines():
-                parts = line.split(":")
-                if len(parts) >= 3:
-                    try:
-                        flash_bytes = (flash_bytes or 0) + int(parts[1].strip(), 16)
-                    except ValueError:
-                        continue
+            flash_bytes = self._parse_mtd_flash_bytes(gathered.get("mtd", ""))
 
             root_fs: str | None = None
             overlay_fs: str | None = None
@@ -3343,7 +3422,7 @@ class RouterManagementService:
                     elif mountpoint == "/overlay":
                         overlay_fs = filesystem
 
-            ntp_servers = [line for line in gathered.get("ntpsrv", "").splitlines() if line.strip()]
+            ntp_servers = [s for s in gathered.get("ntpsrv", "").split() if s.strip()]
             ntp_offset: float | None = None
             ntp_text = gathered.get("ntpinfo", "").strip()
             if ntp_text:
@@ -3357,6 +3436,9 @@ class RouterManagementService:
 
             firmware = release.get("DISTRIB_DESCRIPTION") or ""
             version = release.get("DISTRIB_REVISION") or board_release.get("revision") or ""
+
+            uname_lines = gathered.get("uname", "").splitlines()
+            uname_first = uname_lines[0].split() if uname_lines else []
 
             now = datetime.now(UTC)
             return {
@@ -3382,24 +3464,18 @@ class RouterManagementService:
                 ),
                 "revision": version,
                 "build_date": board_release.get("builddate") or "",
-                "kernel": board.get("kernel") or "".join(
-                    gathered.get("uname", "").splitlines()[0].split()[1:2]
-                ),
-                "machine": (
-                    " ".join(gathered.get("uname", "").splitlines()[0].split()[1:])
-                    if gathered.get("uname")
-                    else ""
-                ),
-                "device_tree": gathered.get("dtnode", "").splitlines()[0].strip() or "",
+                "kernel": board.get("kernel") or "".join(uname_first[1:2]),
+                "machine": " ".join(uname_first[1:]) if uname_lines else "",
+                "device_tree": self._first_line(gathered.get("dtnode", "")),
                 "endianness": endianness,
                 "flash_bytes": flash_bytes,
                 "root_filesystem": root_fs,
                 "overlay_filesystem": overlay_fs,
-                "timezone": gathered.get("timezone", "").splitlines()[0].strip() or "",
-                "zonename": gathered.get("zonename", "").splitlines()[0].strip() or "",
-                "language": gathered.get("language", "").splitlines()[0].strip() or "",
+                "timezone": self._first_line(gathered.get("timezone", "")),
+                "zonename": self._first_line(gathered.get("zonename", "")),
+                "language": self._first_line(gathered.get("language", "")),
                 "notes": gathered.get("notes", "").strip() or "",
-                "local_time": gathered.get("localtime", "").splitlines()[0].strip() or "",
+                "local_time": self._first_line(gathered.get("localtime", "")),
                 "epoch": epoch,
                 "uptime_seconds": uptime,
                 "boot_time": (epoch - uptime) if epoch is not None and uptime is not None else None,

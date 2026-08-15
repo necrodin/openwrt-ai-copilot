@@ -289,3 +289,110 @@ def test_legacy_api_key_env_still_works(api_client: TestClient, monkeypatch) -> 
     openai = next(p for p in listed["providers"] if p["type"] == "openai")
     assert openai["has_credential"] is True
     assert "LEGACY_PROVIDER_KEY" not in json.dumps(listed)
+
+
+def test_draft_probe_without_credential_uses_saved_key(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Model discovery / test-connection while editing (empty key field) must
+    fall back to the saved encrypted credential, not fail as unauthenticated."""
+    secret = "sk-saved-draft-11"
+    assert _create(api_client, type_="deepseek", credential=secret).status_code == 201
+
+    import app.api.v1.providers as providers_module
+
+    seen: dict[str, object] = {}
+
+    async def fake_discover(cfg) -> dict:
+        seen["resolved"] = resolve_api_key(cfg)
+        return {"ok": True, "models": [{"id": "deepseek-v4-flash"}]}
+
+    monkeypatch.setattr(providers_module, "discover_provider_models", fake_discover)
+    response = api_client.post(
+        "/api/v1/providers/discover-models",
+        json={"type": "deepseek", "model": "deepseek-v4-flash"},
+    )
+    assert response.status_code == 200
+    assert seen["resolved"] == secret
+    assert secret not in json.dumps(response.json())
+    assert "api_key_env" not in json.dumps(response.json())
+
+
+def test_draft_probe_draft_credential_overrides_saved_key(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A freshly typed API key on an existing provider wins over the saved key."""
+    assert _create(api_client, type_="deepseek", credential="sk-saved-old").status_code == 201
+
+    import app.api.v1.providers as providers_module
+
+    seen: dict[str, object] = {}
+
+    async def fake_test(cfg) -> dict:
+        seen["resolved"] = resolve_api_key(cfg)
+        return {"ok": True, "category": "ok", "message": "ok"}
+
+    monkeypatch.setattr(providers_module, "test_provider_chat", fake_test)
+    response = api_client.post(
+        "/api/v1/providers/test",
+        json={"type": "deepseek", "model": "deepseek-v4-flash", "credential": "sk-draft-new"},
+    )
+    assert response.status_code == 200
+    assert seen["resolved"] == "sk-draft-new"
+    assert "sk-draft-new" not in json.dumps(response.json())
+
+
+def test_multiple_providers_are_independent(api_client: TestClient) -> None:
+    assert (
+        _create(api_client, type_="deepseek", model="deepseek-v4-flash", credential="sk-a")
+        .status_code
+        == 201
+    )
+    assert _create(
+        api_client,
+        type_="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+        model="gpt-oss-20b:free",
+        credential="sk-b",
+    ).status_code == 201
+    assert _create(
+        api_client,
+        type_="compat",
+        base_url="https://custom.example.com/v1",
+        model="custom-model",
+        credential="sk-c",
+    ).status_code == 201
+
+    # Changing one provider's model must not touch the others.
+    api_client.patch("/api/v1/providers/deepseek", json={"model": "deepseek-chat"})
+    listed = {p["type"]: p for p in api_client.get("/api/v1/providers").json()["providers"]}
+    assert listed["deepseek"]["model"] == "deepseek-chat"
+    assert listed["openrouter"]["model"] == "gpt-oss-20b:free"
+    assert listed["compat"]["model"] == "custom-model"
+
+    # Deleting one provider must not affect the others' config or credentials.
+    response = api_client.delete("/api/v1/providers/openrouter")
+    assert response.status_code == 200
+    listed = {p["type"]: p for p in api_client.get("/api/v1/providers").json()["providers"]}
+    assert "openrouter" not in listed
+    assert listed["deepseek"]["has_credential"] is True
+    assert listed["compat"]["has_credential"] is True
+    assert resolve_api_key(read_provider_config().providers["deepseek"]) == "sk-a"
+    assert resolve_api_key(read_provider_config().providers["compat"]) == "sk-c"
+
+
+def test_edit_model_and_enabled_state_persist(api_client: TestClient) -> None:
+    assert (
+        _create(api_client, type_="deepseek", model="deepseek-v4-flash", credential="sk-m")
+        .status_code
+        == 201
+    )
+    response = api_client.patch(
+        "/api/v1/providers/deepseek",
+        json={"model": "deepseek-chat", "enabled": False},
+    )
+    assert response.status_code == 200
+    detail = api_client.get("/api/v1/providers/deepseek").json()
+    assert detail["model"] == "deepseek-chat"
+    assert detail["enabled"] is False
+    assert detail["has_credential"] is True

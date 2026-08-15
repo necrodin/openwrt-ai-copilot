@@ -141,7 +141,7 @@ class PromptRequest(BaseModel):
     ``messages`` are the concrete messages that would be sent to a chat model
     (``system`` is embedded in :attr:`system`, history follows, and the final
     ``user`` message contains the context block plus the question). The AI layer
-    maps these to its provider format in a later sprint.
+    maps these to its provider format.
     """
 
     request_id: str = Field(default_factory=lambda: str(uuid4()))

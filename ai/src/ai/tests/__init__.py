@@ -1,1 +1,1 @@
-"""Tests for the ai.core package (Sprint 1: placeholder)."""
+"""Tests for the ai.core package."""

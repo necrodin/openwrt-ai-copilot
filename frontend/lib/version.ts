@@ -11,10 +11,10 @@ import { SITE_CONFIG } from "@/lib/site-config";
 
 export type FrontendVersionInfo = {
   appName: string;
-  /** Application version (shared, from config). */
-  version: string;
-  /** Frontend build version. */
-  frontendVersion: string;
+  /** Application version (shared, from config). `null` when not stamped. */
+  version: string | null;
+  /** Frontend build version. `null` when not stamped. */
+  frontendVersion: string | null;
   /** Short git commit hash when the build was stamped with one. */
   gitCommit: string | null;
   /** Build date ISO string when the build was stamped with one. */
@@ -27,6 +27,10 @@ export type BackendVersionInfo = {
   version: string;
   environment: string;
   status: string;
+  /** Git commit reported by the live backend, when the deployment is stamped. */
+  gitCommit: string | null;
+  /** Build date reported by the live backend, when the deployment is stamped. */
+  buildDate: string | null;
 };
 
 /** Synchronous, build-time stamped version information. */
@@ -55,6 +59,8 @@ export async function fetchBackendVersion(
       version: health.version,
       environment: health.environment,
       status: health.status,
+      gitCommit: health.git_commit ?? null,
+      buildDate: health.build_date ?? null,
     };
   } catch {
     return {
@@ -62,6 +68,8 @@ export async function fetchBackendVersion(
       version: "unavailable",
       environment: SITE_CONFIG.environment,
       status: "unknown",
+      gitCommit: null,
+      buildDate: null,
     };
   }
 }

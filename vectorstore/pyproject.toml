@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openwrt-ai-vectorstore"
-version = "0.1.0"
+version = "1.0.0"
 description = "OpenWrt AI Copilot — provider-independent vector database layer"
 requires-python = ">=3.12"
 dependencies = [

@@ -1,4 +1,4 @@
-"""SSH transport layer (Sprint 10A).
+"""SSH transport layer.
 
 The communication layer for reaching an OpenWrt device: an async-native engine
 over three interchangeable backends — **asyncssh** (preferred), the **paramiko**

@@ -1,1 +1,1 @@
-"""End-to-end tests (Sprint 1 placeholder)."""
+"""End-to-end tests."""

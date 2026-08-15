@@ -1,1 +1,1 @@
-"""Tests for the rag package (Sprint 1: placeholder)."""
+"""Tests for the rag package."""

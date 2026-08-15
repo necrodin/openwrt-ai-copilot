@@ -111,7 +111,6 @@ export default function SystemPage() {
   const conn = connectionBadge(status);
   const widgetLoading = loading && updatedAt === null;
   const widgetError = !loading && updatedAt === null && error !== null ? error : null;
-  const dataReady = system !== null;
 
   return (
     <div className="min-w-0 flex-1 space-y-4 p-4 lg:p-6">
@@ -162,8 +161,12 @@ export default function SystemPage() {
         </p>
       ) : null}
 
-      {widgetLoading || !dataReady ? (
+      {widgetLoading ? (
         <Skeleton className="h-96 w-full rounded-xl" />
+      ) : system === null ? (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          System information is unavailable right now. Retrying…
+        </p>
       ) : (
         <div className="space-y-8">
           <section className="space-y-3">

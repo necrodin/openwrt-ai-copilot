@@ -1,4 +1,4 @@
-"""Router management endpoints (Sprint 31).
+"""Router management endpoints.
 
 Real, SSH-backed administrative operations for the router console:
 

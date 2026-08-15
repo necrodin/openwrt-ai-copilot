@@ -7,10 +7,12 @@
 // can assert exactly what would be sent to the backend.
 import test from "node:test";
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 
 import { loadProvidersModule } from "./helpers.mjs";
 
 const {
+  FORM_SECTIONS,
   emptyFormValues,
   editFormValues,
   defaultBaseUrl,
@@ -87,6 +89,94 @@ test("emptyFormValues returns a blank create form with a safe default", () => {
     model: "",
     enabled: true,
   });
+});
+
+test("emptyFormValues returns a fresh, independent draft every call", () => {
+  const first = emptyFormValues();
+  const second = emptyFormValues();
+  assert.notStrictEqual(first, second);
+  first.type = "openai";
+  first.model = "leaked-model";
+  first.apiKey = "sk-should-not-leak";
+  // The next draft must never be polluted by a previous draft.
+  assert.deepStrictEqual(emptyFormValues(), {
+    type: "",
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    enabled: true,
+  });
+});
+
+test("form section order is Provider -> API Key -> Model (discovery/test depend on credential)", () => {
+  const order = [...FORM_SECTIONS];
+  assert.deepStrictEqual(order, [
+    "type",
+    "name",
+    "baseUrl",
+    "apiKey",
+    "discoverModels",
+    "model",
+    "testConnection",
+    "enabled",
+    "save",
+  ]);
+  // The API key must come strictly before the model.
+  assert.ok(order.indexOf("apiKey") < order.indexOf("model"));
+  // Discovery (which needs the credential) sits between API key and model.
+  assert.ok(order.indexOf("apiKey") < order.indexOf("discoverModels"));
+  assert.ok(order.indexOf("discoverModels") < order.indexOf("model"));
+});
+
+test("a new provider can never overwrite an existing one (create uses POST /providers and a 409 surfaces)", async () => {
+  const { calls, restore } = stubFetch(() =>
+    jsonResponse(409, { detail: "Provider 'openai' already exists." }),
+  );
+  try {
+    await assert.rejects(
+      () => createProvider({ type: "openai", name: "OpenAI" }),
+      /already exists/,
+    );
+    assert.strictEqual(calls[0].method, "POST");
+    assert.ok(calls[0].url.endsWith("/api/v1/providers"));
+    // Create never PATCHes an existing provider type.
+    assert.ok(!calls[0].url.includes("/providers/openai"));
+  } finally {
+    restore();
+  }
+});
+
+test("delete targets exactly the selected provider type", async () => {
+  const { calls, restore } = stubFetch(() =>
+    jsonResponse(200, { deleted: true, type: "deepseek" }),
+  );
+  try {
+    const result = await deleteProvider("deepseek");
+    assert.strictEqual(result.deleted, true);
+    assert.strictEqual(calls[0].method, "DELETE");
+    assert.ok(calls[0].url.endsWith("/api/v1/providers/deepseek"));
+    assert.ok(!calls[0].url.includes("openai"));
+  } finally {
+    restore();
+  }
+});
+
+test("delete surfaces the real backend error on failure (never silently passes)", async () => {
+  const { restore } = stubFetch(() =>
+    jsonResponse(404, { detail: "Provider 'deepseek' is not configured" }),
+  );
+  try {
+    await assert.rejects(() => deleteProvider("deepseek"), /not configured/);
+  } finally {
+    restore();
+  }
+});
+
+test("provider module never reads or writes browser storage (API key can never persist client-side)", () => {
+  const source = readFileSync(new URL("../lib/providers.ts", import.meta.url), "utf8");
+  assert.ok(!source.includes("localStorage"));
+  assert.ok(!source.includes("sessionStorage"));
 });
 
 test("editFormValues preloads provider fields but never the credential", () => {

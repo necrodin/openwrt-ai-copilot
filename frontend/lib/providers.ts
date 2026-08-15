@@ -113,6 +113,25 @@ export function emptyFormValues(): ProviderFormValues {
   return { type: "", name: "", baseUrl: "", apiKey: "", model: "", enabled: true };
 }
 
+/**
+ * Canonical order of the provider form sections.
+ *
+ * The API Key must come BEFORE the Model because model discovery and the
+ * connection test depend on the endpoint and credential (draft or saved). This
+ * constant is the single source of truth the form renders in order.
+ */
+export const FORM_SECTIONS = [
+  "type",
+  "name",
+  "baseUrl",
+  "apiKey",
+  "discoverModels",
+  "model",
+  "testConnection",
+  "enabled",
+  "save",
+] as const;
+
 /** Prefilled form for editing an existing provider. The API-key field stays
  * empty so an unchanged value preserves the existing credential; the stored
  * credential is only a boolean flag and is never revealed to the browser. */

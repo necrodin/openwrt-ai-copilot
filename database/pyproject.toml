@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openwrt-ai-database"
-version = "0.1.0"
+version = "1.0.0"
 description = "OpenWrt AI Copilot — SQLite schema, engine, session"
 requires-python = ">=3.12"
 dependencies = [

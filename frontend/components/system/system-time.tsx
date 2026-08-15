@@ -16,7 +16,7 @@ type Props = {
 
 function formatEpoch(epoch: number | null): string {
   if (epoch === null || Number.isNaN(epoch)) {
-    return "—";
+    return "N/A";
   }
   return new Date(epoch * 1000).toLocaleString([], {
     dateStyle: "medium",
@@ -53,7 +53,7 @@ export function SystemTime({ system, busy = false, onSyncTime, onRestartNtp }: P
               Router time
             </p>
             <p className="text-sm font-semibold" title={system.local_time}>
-              {system.local_time || "—"}
+              {system.local_time || "N/A"}
             </p>
           </div>
           <div className="space-y-1">

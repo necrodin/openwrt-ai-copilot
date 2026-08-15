@@ -8,7 +8,11 @@ def test_health_returns_ok(client) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["service"] == "OpenWrt AI Copilot"
-    assert body["version"] == "0.1.0"
+    assert body["version"] == "1.0.0"
+    # Without GIT_COMMIT/BUILD_DATE the build identity is reported as null,
+    # never fabricated.
+    assert body["git_commit"] is None
+    assert body["build_date"] is None
 
 
 def test_ready_returns_ready(client) -> None:

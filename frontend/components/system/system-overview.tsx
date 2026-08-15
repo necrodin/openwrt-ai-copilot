@@ -16,7 +16,7 @@ function Tile({ label, value }: { label: string; value: string | null }) {
           {label}
         </p>
         <p className="truncate text-sm font-semibold" title={value ?? ""}>
-          {value || "—"}
+          {value || "N/A"}
         </p>
       </CardContent>
     </Card>

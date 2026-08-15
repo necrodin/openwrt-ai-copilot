@@ -414,64 +414,6 @@ export function AiProvidersSection() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="provider-model">Model</Label>
-                {modelMode === "dropdown" && modelOptions.length > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      id="provider-model"
-                      className={selectClasses}
-                      value={form.model}
-                      onChange={(event) => setForm({ ...form, model: event.target.value })}
-                    >
-                      {form.model &&
-                      !modelOptions.some((option) => option.id === form.model) ? (
-                        <option value={form.model}>Custom: {form.model}</option>
-                      ) : null}
-                      {modelOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.id}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => setModelMode("manual")}
-                    >
-                      Manual
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="provider-model"
-                      className="flex-1"
-                      value={form.model}
-                      onChange={(event) => setForm({ ...form, model: event.target.value })}
-                      placeholder="gpt-4o-mini"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0"
-                      disabled={probeBusy !== null}
-                      onClick={() => void runModelDiscovery()}
-                    >
-                      {probeBusy === "discover" ? (
-                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                      ) : null}
-                      Discover models
-                    </Button>
-                  </div>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Discover models from the endpoint, or type one manually.
-                </p>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="provider-api-key">API Key</Label>
                   {formEditingType !== null && existingCredential ? (
@@ -514,6 +456,68 @@ export function AiProvidersSection() {
                   The API key is encrypted on the server and never returned to or
                   stored by this app. Leaving it empty keeps the current
                   credential; entering a new key replaces it.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={probeBusy !== null}
+                  onClick={() => void runModelDiscovery()}
+                >
+                  {probeBusy === "discover" ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : null}
+                  Discover models
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Fetches the model list using the endpoint and credential above;
+                  editing with an empty key uses the saved credential. Manual
+                  entry stays available.
+                </span>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="provider-model">Model</Label>
+                {modelMode === "dropdown" && modelOptions.length > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="provider-model"
+                      className={selectClasses}
+                      value={form.model}
+                      onChange={(event) => setForm({ ...form, model: event.target.value })}
+                    >
+                      {form.model &&
+                      !modelOptions.some((option) => option.id === form.model) ? (
+                        <option value={form.model}>Custom: {form.model}</option>
+                      ) : null}
+                      {modelOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.id}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setModelMode("manual")}
+                    >
+                      Manual
+                    </Button>
+                  </div>
+                ) : (
+                  <Input
+                    id="provider-model"
+                    className="flex-1"
+                    value={form.model}
+                    onChange={(event) => setForm({ ...form, model: event.target.value })}
+                    placeholder="gpt-4o-mini"
+                  />
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Choose a discovered model or type one manually.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:col-span-2">

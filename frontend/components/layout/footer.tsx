@@ -20,8 +20,8 @@ export function Footer() {
       </div>
 
       <span className="hidden min-w-0 truncate md:inline">
-        v{SITE_CONFIG.version} · {SITE_CONFIG.license} License · Powered by{" "}
-        {SITE_CONFIG.company}
+        {SITE_CONFIG.version ? `v${SITE_CONFIG.version} · ` : ""}
+        {SITE_CONFIG.license} · Powered by {SITE_CONFIG.company}
       </span>
 
       <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">

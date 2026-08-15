@@ -71,6 +71,57 @@ test("empty search with no repository field is a no-match", () => {
   assert.strictEqual(state.kind, "no-match");
 });
 
+test("index-unavailable status maps to its own message", () => {
+  const state = searchEmptyState({
+    query: "luci",
+    manager: "apk",
+    count: 0,
+    results: [],
+    repository: {
+      status: "index-unavailable",
+      available: false,
+      reason: "apk could not open its cache indexes on the router.",
+      detail: ["WARNING: opening from cache /var/cache/apk: No such file or directory"],
+    },
+  });
+  assert.strictEqual(state.kind, "index-unavailable");
+  assert.match(state.title, /metadata is unavailable/);
+  assert.strictEqual(state.reason, "apk could not open its cache indexes on the router.");
+});
+
+test("manager-unavailable status maps to its own message", () => {
+  const state = searchEmptyState({
+    query: "luci",
+    manager: "unknown",
+    count: 0,
+    results: [],
+    repository: {
+      status: "manager-unavailable",
+      available: false,
+      reason: "No supported package manager (apk or opkg) was found on the router.",
+    },
+  });
+  assert.strictEqual(state.kind, "manager-unavailable");
+  assert.match(state.title, /package manager is unavailable/);
+});
+
+test("repository-unavailable status maps to its own message", () => {
+  const state = searchEmptyState({
+    query: "luci",
+    manager: "opkg",
+    count: 0,
+    results: [],
+    repository: {
+      status: "repository-unavailable",
+      available: false,
+      reason: "The repository index has not been downloaded on the router.",
+    },
+  });
+  assert.strictEqual(state.kind, "repository-unavailable");
+  assert.match(state.title, /repository is unavailable/);
+  assert.strictEqual(state.reason, "The repository index has not been downloaded on the router.");
+});
+
 // -- storage: read-only firmware /rom -------------------------------------- //
 
 test("squashfs /rom is a read-only firmware mount", () => {

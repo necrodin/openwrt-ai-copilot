@@ -1,12 +1,12 @@
 """OpenWrt AI Copilot — Retrieval Core.
 
-Sprint 9A: provider-independent retrieval pipeline — retrieval, context
+Provider-independent retrieval pipeline — retrieval, context
 building, prompt building, citations, conversation memory, token budgeting,
 and caching. No LLM connection, no streaming; the pipeline ends at a ready
 ``PromptRequest``/``PromptResponse`` that the AI layer (``rag.ai``) turns into
 a grounded, cited answer.
 
-Sprint 9B: a ``reranker`` hook (see :class:`rag.protocols.Reranker` and
+A ``reranker`` hook (see :class:`rag.protocols.Reranker` and
 :class:`rag.reranker.DummyReranker`) lets an injected reranker re-score
 retrieved chunks before the context is built; the ``rag.ai`` subpackage
 integrates the core with the ``providers`` package to produce answers.
@@ -64,7 +64,7 @@ from rag.reranker import DummyReranker
 from rag.retriever import VectorRetriever
 from rag.tokens import HeuristicTokenEstimator, TokenBudgetManager
 
-__version__ = "0.5.0-alpha"
+__version__ = "1.0.0"
 
 __all__ = [
     "CacheConfig",

@@ -14,8 +14,14 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "OpenWrt AI Copilot"
-    app_version: str = "0.1.0"
+    app_version: str = "1.0.0"
     environment: str = "development"
+
+    # Build identity: the git commit and build timestamp of the deployed
+    # artifact. Injected by the CI/Docker build via GIT_COMMIT / BUILD_DATE;
+    # empty = unavailable, and the health endpoint reports them as null.
+    git_commit: str = ""
+    build_date: str = ""
 
     api_prefix: str = "/api"
     log_level: str = "INFO"
@@ -44,7 +50,7 @@ class Settings(BaseSettings):
     router_password: str = ""  # optional; prefer keys
     router_poll_interval: float = 5.0  # seconds between dashboard polls
 
-    # TODO(Sprint 2+): move to a proper secrets manager; never log this value.
+    # TODO: move to a proper secrets manager; never log this value.
     secret_key: str = "change-me-in-production"
 
     # API-key authentication for programmatic clients (Security Fix #1). Both

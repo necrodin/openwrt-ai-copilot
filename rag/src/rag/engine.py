@@ -5,7 +5,7 @@
 
 The engine wires the swappable components together, applies caching and the
 token budget, and records conversation history. It never touches a provider
-SDK or an LLM — the returned :class:`PromptResponse` is what a later sprint
+SDK or an LLM — the returned :class:`PromptResponse` is what a downstream
 hands to the AI layer.
 """
 
@@ -183,7 +183,7 @@ class RetrievalEngine:
         conversation_id: str,
         assistant_text: str,
     ) -> ConversationState | None:
-        """Record the assistant answer (used once an LLM sprint exists)."""
+        """Record the assistant answer."""
         if self.memory is None:
             return None
         return self.memory.add(conversation_id, "assistant", assistant_text)

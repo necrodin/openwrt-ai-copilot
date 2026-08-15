@@ -16,7 +16,7 @@ function Row({ label, value }: { label: string; value: string | null }) {
         {label}
       </span>
       <span className="min-w-0 truncate text-right text-sm font-medium" title={value ?? ""}>
-        {value || "—"}
+        {value || "N/A"}
       </span>
     </div>
   );

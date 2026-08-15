@@ -1,6 +1,6 @@
 """OpenWrt AI Copilot — provider-independent vector database layer.
 
-Sprint 7. Defines a single :class:`VectorStore` interface plus reusable models
+Defines a single :class:`VectorStore` interface plus reusable models
 (``VectorDocument``, ``SearchRequest``, ``CollectionInfo`` …), a
 :class:`VectorStoreFactory`, and high-level managers (:class:`CollectionManager`,
 :class:`DocumentManager`, :class:`MetadataManager`).
@@ -13,7 +13,7 @@ backend. Future RAG builds on this abstraction only.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 from vectorstore.config import (
     DEFAULT_STORE_TYPES,

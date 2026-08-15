@@ -1,6 +1,6 @@
 """OpenWrt AI Copilot — RAG integration layer.
 
-Sprint 9B bridges the provider-independent Retrieval Core (``rag``) to the AI
+Bridges the provider-independent Retrieval Core (``rag``) to the AI
 provider facade (``ai``/``providers``): :class:`~rag.ai.RAGEngine` turns a
 retrieved, reranked context into a grounded, cited chat answer (streaming or
 not), :class:`~rag.ai.RAGSession` owns a conversation, and the helper modules

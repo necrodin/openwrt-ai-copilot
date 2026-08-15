@@ -64,7 +64,7 @@ export function PackagesSearch({ busy, onAction }: Props) {
     }
     if (response.results.length === 0) {
       const empty = searchEmptyState(response);
-      if (empty.kind === "repository-unavailable") {
+      if (empty.kind !== "no-match") {
         return (
           <div className="space-y-2">
             <EmptyState message={empty.title} />
@@ -74,9 +74,14 @@ export function PackagesSearch({ busy, onAction }: Props) {
               </p>
             ) : null}
             {empty.detail && empty.detail.length > 0 ? (
-              <p className="px-2 text-center font-mono text-[11px] text-muted-foreground">
-                {empty.detail.join(" · ")}
-              </p>
+              <details className="px-2 text-center">
+                <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
+                  Diagnostic details
+                </summary>
+                <pre className="mx-auto mt-2 max-w-full overflow-x-auto rounded-md bg-muted/40 px-3 py-2 text-left font-mono text-[11px] text-muted-foreground">
+                  {empty.detail.join("\n")}
+                </pre>
+              </details>
             ) : null}
           </div>
         );

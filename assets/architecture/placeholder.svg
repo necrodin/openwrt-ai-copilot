@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600" role="img" aria-label="Architecture diagram placeholder">
-  <rect width="800" height="600" rx="8" fill="#0f172a"/>
-  <text x="400" y="290" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="600" fill="#64748b" text-anchor="middle">Architecture Diagram</text>
-  <text x="400" y="330" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#475569" text-anchor="middle">Coming soon — see docs/ARCHITECTURE.md</text>
-  <rect x="100" y="100" width="600" height="400" rx="8" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="8 4"/>
-</svg>

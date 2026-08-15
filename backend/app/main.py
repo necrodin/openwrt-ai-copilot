@@ -1,8 +1,8 @@
 """FastAPI application entrypoint.
 
-Sprint 1 scope: application shell, configuration, logging, CORS, database
-initialization, and a health API. Sprint 2 adds the provider manager lifecycle
-and provider admin endpoints. No router logic or RAG yet.
+Assembles the application shell: configuration, logging, CORS, database
+initialization, authentication, the provider manager lifecycle, and the API
+routers for auth, dashboard, chat, router management, and providers.
 """
 
 from collections.abc import AsyncIterator

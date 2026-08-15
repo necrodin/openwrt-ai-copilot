@@ -1,6 +1,6 @@
 """RAGEngine: wire the Retrieval Core to AI providers for grounded chat.
 
-The engine composes the Sprint 9A retrieval pipeline (retrieve -> rerank ->
+The engine composes the retrieval pipeline (retrieve -> rerank ->
 context -> prompt) with a chat provider facade so a single call produces a
 grounded, cited answer. It owns the full turn: build the grounded prompt,
 call the provider (streaming or not), record conversation memory, and surface
@@ -44,7 +44,7 @@ class RAGEngine:
     """High-level facade turning a question into a grounded, cited answer.
 
     Args:
-        retriever: the Sprint 9A retriever (e.g. ``VectorRetriever`` with an
+        retriever: the retriever (e.g. ``VectorRetriever`` with an
             injected embedder).
         configuration: retrieval + provider tuning; a default
             :class:`RAGConfiguration` is used when omitted.

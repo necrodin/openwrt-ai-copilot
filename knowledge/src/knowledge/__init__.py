@@ -39,7 +39,7 @@ from knowledge.models import (
 )
 from knowledge.registry import KnowledgeRegistry, KnowledgeRegistryError
 
-__version__ = "0.4.0-alpha"
+__version__ = "1.0.0"
 
 __all__ = [
     "ChunkingConfig",

@@ -15,6 +15,8 @@ def health() -> dict:
         "service": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
+        "git_commit": settings.git_commit or None,
+        "build_date": settings.build_date or None,
     }
 
 

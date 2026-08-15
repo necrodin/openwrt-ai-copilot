@@ -1,6 +1,6 @@
 """Token estimation and budget management.
 
-Until a real tokenizer is wired in (a later sprint), tokens are estimated
+Until a real tokenizer is wired in, tokens are estimated
 deterministically with a ``chars / chars_per_token`` heuristic — the same
 convention the ``providers`` package already uses (``estimate_tokens``), so
 estimates stay consistent across layers.

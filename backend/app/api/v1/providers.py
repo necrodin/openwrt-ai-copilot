@@ -459,7 +459,10 @@ async def create_provider_route(
         )
     config = read_provider_config()
     if body.type in config.providers:
-        raise HTTPException(status_code=409, detail=f"Provider {body.type!r} is already configured")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Provider {body.type!r} already exists.",
+        )
     cfg = _validate_provider(body.type, body.model_dump())
     config.providers[body.type] = cfg
     write_provider_config(config)

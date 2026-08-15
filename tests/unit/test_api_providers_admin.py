@@ -61,6 +61,7 @@ def test_create_duplicate_conflict(api_client: TestClient) -> None:
     assert _create(api_client).status_code == 201
     response = _create(api_client)
     assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]
 
 
 def test_edit_provider(api_client: TestClient) -> None:

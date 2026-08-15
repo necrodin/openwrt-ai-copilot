@@ -21,8 +21,9 @@ export type DonationTarget = {
   /** Flat emoji-free short description shown on the Support page. */
   description: string;
   /**
-   * External donation URL. `null` until the maintainer configures one — those
-   * targets render as "Not configured" rather than linking to a made-up URL.
+   * External donation URL. The default is the maintainer's real link (never a
+   * made-up address); an operator may override it at build time via the
+   * matching NEXT_PUBLIC_DONATE_* variable.
    */
   url: string | null;
 };
@@ -41,11 +42,14 @@ export const SITE_CONFIG = {
   company: process.env.NEXT_PUBLIC_COMPANY_NAME ?? "Necrodin",
   author:
     process.env.NEXT_PUBLIC_AUTHOR ?? "The OpenWrt AI Copilot contributors",
-  license: process.env.NEXT_PUBLIC_LICENSE ?? "MIT",
+  license:
+    process.env.NEXT_PUBLIC_LICENSE ??
+    "OpenWrt AI Copilot Personal Non-Commercial License",
 
-  /** Versioning (build-time injected in the CI / Docker build). */
-  version: process.env.NEXT_PUBLIC_APP_VERSION ?? "0.0.0",
-  frontendVersion: process.env.NEXT_PUBLIC_FRONTEND_VERSION ?? "0.0.0",
+  /** Versioning (build-time injected in the CI / Docker build). `null` until
+   *  stamped — the UI renders "N/A" instead of a fabricated placeholder. */
+  version: process.env.NEXT_PUBLIC_APP_VERSION ?? null,
+  frontendVersion: process.env.NEXT_PUBLIC_FRONTEND_VERSION ?? null,
   gitCommit: process.env.NEXT_PUBLIC_GIT_COMMIT ?? null,
   buildDate: process.env.NEXT_PUBLIC_BUILD_DATE ?? null,
   environment: process.env.NEXT_PUBLIC_ENVIRONMENT ?? "development",
@@ -87,55 +91,26 @@ export const SITE_CONFIG = {
     openwrt: process.env.NEXT_PUBLIC_SOCIAL_OPENWRT ?? "https://openwrt.org",
   },
 
-  /** Donation targets (Support Development page) — all external links. */
+  /**
+   * Donation targets (Support Development page) — all external links.
+   *
+   * Maintainer-owned configuration with real, working defaults. These values
+   * are NOT user-configurable: they are not exposed in Settings, credentials,
+   * the vault, localStorage, or any per-user profile. The UI renders them
+   * directly.
+   */
   donations: [
     {
       id: "github-sponsors",
       label: "GitHub Sponsors",
       description: "Sponsor the project directly on GitHub.",
-      url: process.env.NEXT_PUBLIC_DONATE_GITHUB ?? null,
-    },
-    {
-      id: "buy-me-a-coffee",
-      label: "Buy Me a Coffee",
-      description: "Support a coffee while we ship the next feature.",
-      url: process.env.NEXT_PUBLIC_DONATE_BUYMEACOFFEE ?? null,
-    },
-    {
-      id: "ko-fi",
-      label: "Ko-fi",
-      description: "Ko-fi supports creators and open source maintainers.",
-      url: process.env.NEXT_PUBLIC_DONATE_KOFI ?? null,
-    },
-    {
-      id: "paypal",
-      label: "PayPal",
-      description: "One-time donation via PayPal.",
-      url: process.env.NEXT_PUBLIC_DONATE_PAYPAL ?? null,
+      url: process.env.NEXT_PUBLIC_DONATE_GITHUB ?? "https://github.com/necrodin",
     },
     {
       id: "amazon-gift-card",
       label: "Amazon Gift Card",
       description: "Send an Amazon gift card to the maintainer.",
-      url: process.env.NEXT_PUBLIC_DONATE_AMAZON ?? null,
-    },
-    {
-      id: "bitcoin",
-      label: "Bitcoin (BTC)",
-      description: "Donate Bitcoin to support development.",
-      url: process.env.NEXT_PUBLIC_DONATE_BITCOIN ?? null,
-    },
-    {
-      id: "ethereum",
-      label: "Ethereum (ETH)",
-      description: "Donate Ether to support development.",
-      url: process.env.NEXT_PUBLIC_DONATE_ETHEREUM ?? null,
-    },
-    {
-      id: "lightning",
-      label: "Lightning Network",
-      description: "Donate via the Bitcoin Lightning Network.",
-      url: process.env.NEXT_PUBLIC_DONATE_LIGHTNING ?? null,
+      url: process.env.NEXT_PUBLIC_DONATE_AMAZON ?? "mailto:necrodin@gmail.com",
     },
   ] satisfies DonationTarget[],
 } as const;

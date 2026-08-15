@@ -49,8 +49,9 @@ export type PackageSearchResponse = {
   count: number;
   results: PackageSearchResult[];
   repository?: {
+    status: "ok" | "manager-unavailable" | "repository-unavailable" | "index-unavailable";
     available: boolean;
-    reason?: string;
+    reason?: string | null;
     detail?: string[];
   } | null;
 };

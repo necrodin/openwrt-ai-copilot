@@ -8,6 +8,8 @@ export type HealthResponse = {
   service: string;
   version: string;
   environment: string;
+  git_commit?: string | null;
+  build_date?: string | null;
 };
 
 export async function fetchHealth(

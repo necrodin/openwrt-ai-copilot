@@ -5,4 +5,4 @@ the contracts (protocols), the unified data model, and the capability registry
 that concrete adapters (see `providers`) implement.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

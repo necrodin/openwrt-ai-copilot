@@ -24,11 +24,11 @@ export default function SupportPage() {
             Support Development
           </h1>
           <p className="max-w-2xl text-muted-foreground">
-            {SITE_CONFIG.name} is completely free and open source. If you find
-            it useful, consider supporting the maintainers so we can keep
+            {SITE_CONFIG.name} is free for personal, non-commercial use. If you
+            find it useful, consider supporting the maintainers so we can keep
             building, fixing bugs, and shipping new features. There are no
-            subscriptions, no licenses, and no payments inside the app — every
-            option below simply opens an external site.
+            subscriptions and no payments inside the app — every option below
+            simply opens an external site.
           </p>
         </div>
       </div>
@@ -81,12 +81,11 @@ export default function SupportPage() {
       <div className="flex items-start gap-3 rounded-xl border bg-muted/30 p-5 text-sm text-muted-foreground">
         <Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden />
         <p>
-          Donations are optional and purely a thank-you. The project will
-          always remain free and open source under the{" "}
+          The application is free for personal, non-commercial use under the{" "}
           <span className="font-medium text-foreground">
             {SITE_CONFIG.license}
-          </span>{" "}
-          license — for everyone, forever.
+          </span>
+          . Commercial use and resale are not permitted.
         </p>
       </div>
     </div>

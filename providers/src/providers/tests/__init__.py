@@ -1,1 +1,1 @@
-"""Tests for the providers package (Sprint 1: placeholder)."""
+"""Tests for the providers package."""

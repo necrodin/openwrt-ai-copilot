@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "openwrt-ai-vision"
-version = "0.1.0"
+version = "1.0.0"
 description = "OpenWrt AI Copilot — vision (multimodal) abstraction and adapters"
 requires-python = ">=3.12"
 dependencies = [
-    "openwrt-ai-core>=0.1.0",
+    "openwrt-ai-core>=1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

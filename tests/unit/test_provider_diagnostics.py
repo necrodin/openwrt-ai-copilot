@@ -186,6 +186,19 @@ async def test_chat_test_timeout_category() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_test_rate_limit_category() -> None:
+    """A 429 must be reported as rate_limited, never as Connection OK."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": {"message": "rate limit exceeded"}})
+
+    diag = _diag(_cfg(), handler)
+    result = await diag.test_provider_chat(_cfg())
+    assert result["ok"] is False
+    assert result["category"] == "rate_limited"
+    assert "Connection OK" not in result["message"]
+
+
+@pytest.mark.asyncio
 async def test_discovery_lists_models() -> None:
     cfg = _cfg()
     diag = _diag(cfg, _models_handler(["gpt-4o", "gpt-4o-mini"]))

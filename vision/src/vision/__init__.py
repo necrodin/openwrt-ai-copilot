@@ -6,7 +6,7 @@ package re-exports the `VisionProvider` protocol and will host vision-specific
 helpers and adapters.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 from ai.core.models import VisionRequest, VisionResponse
 from ai.core.protocols import VisionProvider

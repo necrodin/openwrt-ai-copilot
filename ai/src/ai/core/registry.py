@@ -1,7 +1,7 @@
 """Provider capability registry.
 
 A thread-safe registry mapping (capability, provider_name) to adapter classes
-or factory callables. Concrete providers register themselves in later sprints;
+or factory callables. Concrete providers register themselves;
 the registry itself is provider-agnostic and contains zero AI logic.
 """
 
