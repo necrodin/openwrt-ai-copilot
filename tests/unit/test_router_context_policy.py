@@ -41,13 +41,21 @@ def _snapshot_with_sentinels():
     return snap
 
 
+def _availability(ctx: dict, category: str) -> str:
+    """Look up a category's status inside a focused context manifest."""
+    manifest = ctx["router_data_availability"]
+    return next(item["status"] for item in manifest if item["category"] == category)
+
+
 def test_wan_question_excludes_unrelated_sections() -> None:
     sections = select_sections("what is my WAN IP?")
     assert "network" in sections
     assert "network_status" in sections
     assert not sections & {"firewall", "logs", "packages", "vpn", "clients"}
     ctx = build_focused_context(SNAPSHOT, sections)
-    assert set(ctx) == {"network", "network_status"}
+    assert set(ctx) - {"router_data_availability"} == {"network", "network_status"}
+    assert _availability(ctx, "public_ip") in ("available", "unknown")
+    assert _availability(ctx, "dns") == "available"
 
 
 def test_wireless_question_includes_wifi_and_clients() -> None:
@@ -64,20 +72,21 @@ def test_firewall_question_excludes_unrelated_sections() -> None:
     sections = select_sections("show firewall rules")
     assert sections == {"firewall"}
     ctx = build_focused_context(SNAPSHOT, sections)
-    assert set(ctx) == {"firewall"}
+    assert set(ctx) - {"router_data_availability"} == {"firewall"}
 
 
 def test_vpn_question_includes_only_vpn() -> None:
     sections = select_sections("is VPN configured?")
     assert sections == {"vpn"}
-    assert set(build_focused_context(SNAPSHOT, sections)) == {"vpn"}
+    ctx = build_focused_context(SNAPSHOT, sections)
+    assert set(ctx) - {"router_data_availability"} == {"vpn"}
 
 
 def test_packages_question_includes_only_packages() -> None:
     sections = select_sections("what packages are installed?")
     assert sections == {"packages"}
     ctx = build_focused_context(SNAPSHOT, sections)
-    assert set(ctx) == {"packages"}
+    assert set(ctx) - {"router_data_availability"} == {"packages"}
     # Package metadata (descriptions) is pruned; only name + version are sent.
     for pkg in ctx["packages"]:
         assert set(pkg) == {"name", "version"}
@@ -94,7 +103,7 @@ def test_unknown_question_uses_bounded_fallback() -> None:
     sections = select_sections("hello there, how are you?")
     assert sections == FALLBACK_SECTIONS
     ctx = build_focused_context(SNAPSHOT, sections)
-    assert set(ctx) <= set(FALLBACK_SECTIONS)
+    assert set(ctx) - {"router_data_availability"} <= set(FALLBACK_SECTIONS)
     # No verbose sections in the fallback.
     assert not set(ctx) & {"firewall", "logs", "packages", "vpn", "clients", "arp"}
 

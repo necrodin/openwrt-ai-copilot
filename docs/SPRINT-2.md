@@ -69,9 +69,12 @@ callers detect support instead of guessing.
 - `backend/app/main.py` lifespan builds the `ProviderManager` from
   `PROVIDER_CONFIG_FILE` (default `providers.yaml`; missing file = empty
   manager, app still boots) and closes transports on shutdown.
-- `backend/app/api/v1/providers.py` (mounted at `/api/v1`): read-only admin
-  endpoints — list providers, detail, health, capabilities, usage, models.
-  No mutating endpoints; switching providers is a config edit.
+- `backend/app/api/v1/providers.py` (mounted at `/api/v1`): introspection
+  endpoints (list providers, detail, health, capabilities, usage, models) plus
+  admin-guarded configuration management — add, edit, delete, enable/disable,
+  set default, and test-connection. Mutations persist to `providers.yaml` and
+  reload the provider manager immediately; every mutating endpoint requires
+  the existing admin/write scope (`devices.write`).
 
 ## Dependencies
 

@@ -18,9 +18,10 @@ keeps the "router data is DATA, not instructions" boundary intact.
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 
-from router_agent.model import DeviceSnapshot
+from router_agent.model import WAN_PROTOS, DeviceSnapshot
 
 #: Snapshot sections selected for a general/unknown question: identity + basic
 #: health. Small enough to fit small-context models.
@@ -387,11 +388,160 @@ _PRUNERS = {
 }
 
 
+#: Availability statuses reported for each router data category. ``available``
+#: means the snapshot actually carries the data; ``not_available`` means it does
+#: not; ``unknown`` means the collector ran but the specific value could not be
+#: determined; ``error`` means collecting that section failed.
+AVAILABLE = "available"
+NOT_AVAILABLE = "not_available"
+UNKNOWN = "unknown"
+ERROR = "error"
+
+
+def _is_private_v4(address: str | None) -> bool:
+    if not address:
+        return False
+    try:
+        return bool(ipaddress.ip_address(address).is_private)
+    except ValueError:
+        return False
+
+
+def build_availability_manifest(snapshot: DeviceSnapshot) -> list[dict[str, str]]:
+    """Deterministically report which router data categories the snapshot has.
+
+    Returns a compact ``[{"category": ..., "status": ...}, ...]`` list derived
+    only from the snapshot's own structured fields plus collector errors, so the
+    Copilot can distinguish data the router actually reported from data it did
+    not. Never contains values — only availability.
+    """
+    errors = {entry.collector for entry in snapshot.errors}
+
+    def errored(*names: str) -> str | None:
+        return ERROR if errors.intersection(names) else None
+
+    cpu = snapshot.cpu
+    memory = snapshot.memory
+    storage = snapshot.storage or []
+    ifaces = snapshot.network or []
+    ns = snapshot.network_status
+    wifi = snapshot.wifi
+    firewall = snapshot.firewall
+    kernel = snapshot.kernel
+
+    addresses = [(iface, addr) for iface in ifaces for addr in iface.addresses]
+    v4 = [addr for _, addr in addresses if addr.family == "ipv4"]
+    v6 = [addr for _, addr in addresses if addr.family == "ipv6"]
+    public_v4 = [addr for addr in v4 if addr.is_public is True]
+    wan_v4 = [
+        addr
+        for iface, addr in addresses
+        if iface.proto in WAN_PROTOS and addr.family == "ipv4"
+    ]
+    lan_v4 = [
+        addr
+        for iface, addr in addresses
+        if addr.family == "ipv4"
+        and ("lan" in (iface.name or "").lower() or _is_private_v4(addr.address))
+    ]
+    has_traffic = any(
+        iface.rx_bytes is not None or iface.tx_bytes is not None for iface in ifaces
+    )
+
+    dns: list[str] = []
+    if ns is not None and ns.dns:
+        dns = list(ns.dns)
+    elif snapshot.dhcp is not None and snapshot.dhcp.dns:
+        dns = list(snapshot.dhcp.dns)
+
+    clients_present = bool(snapshot.clients or snapshot.arp or wifi.clients)
+    stations_present = bool(wifi.clients) or any(
+        radio.station_count > 0 for radio in wifi.radios
+    )
+    system_present = bool(
+        kernel.hostname or kernel.model or kernel.release or kernel.release_version
+    )
+
+    def cpu_status() -> str:
+        if errored("cpu"):
+            return ERROR
+        if cpu is None:
+            return NOT_AVAILABLE
+        if cpu.usage_percent is not None:
+            return AVAILABLE
+        return UNKNOWN
+
+    def public_ip_status() -> str:
+        if errored("network", "network_status"):
+            return ERROR
+        if public_v4 or wan_v4:
+            return AVAILABLE
+        if v4:
+            return UNKNOWN
+        return NOT_AVAILABLE
+
+    def lan_ip_status() -> str:
+        if errored("network"):
+            return ERROR
+        if lan_v4:
+            return AVAILABLE
+        if v4:
+            return UNKNOWN
+        return NOT_AVAILABLE
+
+    manifest = [
+        {
+            "category": "system_info",
+            "status": errored("kernel")
+            or (AVAILABLE if system_present else NOT_AVAILABLE),
+        },
+        {"category": "cpu", "status": cpu_status()},
+        {
+            "category": "memory",
+            "status": errored("memory") or (AVAILABLE if memory is not None else NOT_AVAILABLE),
+        },
+        {
+            "category": "disk",
+            "status": errored("storage") or (AVAILABLE if storage else NOT_AVAILABLE),
+        },
+        {"category": "public_ip", "status": public_ip_status()},
+        {"category": "lan_ip", "status": lan_ip_status()},
+        {
+            "category": "ipv6",
+            "status": errored("network") or (AVAILABLE if v6 else NOT_AVAILABLE),
+        },
+        {
+            "category": "dns",
+            "status": errored("network_status") or (AVAILABLE if dns else NOT_AVAILABLE),
+        },
+        {
+            "category": "connected_clients",
+            "status": errored("clients", "arp")
+            or (AVAILABLE if clients_present else NOT_AVAILABLE),
+        },
+        {
+            "category": "wifi_clients",
+            "status": errored("wifi") or (AVAILABLE if stations_present else NOT_AVAILABLE),
+        },
+        {
+            "category": "firewall_rules",
+            "status": errored("firewall") or (AVAILABLE if firewall.rules else NOT_AVAILABLE),
+        },
+        {
+            "category": "traffic",
+            "status": errored("network") or (AVAILABLE if has_traffic else NOT_AVAILABLE),
+        },
+    ]
+    return manifest
+
+
 def build_focused_context(snapshot: DeviceSnapshot, sections: set[str]) -> dict[str, Any]:
     """Extract only ``sections`` from ``snapshot``, pruned to relevant fields.
 
     ``client_media`` (per-MAC medium) is folded in when a client/device section
-    is selected. Never includes fields/sections that were not requested.
+    is selected. Never includes fields/sections that were not requested. The
+    deterministic :func:`build_availability_manifest` is always included so the
+    model knows what the router data does and does not contain.
     """
     context: dict[str, Any] = {}
     for section in sections:
@@ -403,4 +553,5 @@ def build_focused_context(snapshot: DeviceSnapshot, sections: set[str]) -> dict[
             context[section] = value
     if sections & _CLIENT_SECTIONS and snapshot.client_media:
         context["client_media"] = dict(snapshot.client_media)
+    context["router_data_availability"] = build_availability_manifest(snapshot)
     return context

@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/components/auth/auth-boundary";
+import { AiProvidersSection } from "@/components/providers/ai-providers-section";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -138,6 +139,8 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </section>
+
+      <AiProvidersSection />
 
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">Account / Security</h2>

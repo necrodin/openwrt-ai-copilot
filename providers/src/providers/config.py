@@ -18,15 +18,57 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 #: Default endpoints per provider type, applied when a provider config omits
-#: ``base_url``.
+#: ``base_url``. Every entry except ``ollama``/``nvembed`` uses the shared
+#: OpenAI-compatible wire protocol (native APIs or official OpenAI-compatible
+#: gateways); ``compat`` is the always-available "Custom / OpenAI-compatible"
+#: type and requires an explicit ``base_url`` (default is empty).
 DEFAULT_BASE_URLS: dict[str, str] = {
     "ollama": "http://localhost:11434",
-    "nim": "https://integrate.api.nvidia.com/v1",
-    "nvembed": "https://integrate.api.nvidia.com/v1",
     "openai": "https://api.openai.com/v1",
+    "azure_openai": "https://YOUR_RESOURCE.openai.azure.com/openai/v1",
+    "anthropic": "https://api.anthropic.com/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
     "openrouter": "https://openrouter.ai/api/v1",
+    "together": "https://api.together.xyz/v1",
+    "groq": "https://api.groq.com/openai/v1",
+    "deepseek": "https://api.deepseek.com/v1",
+    "mistral": "https://api.mistral.ai/v1",
+    "xai": "https://api.x.ai/v1",
+    "cohere": "https://api.cohere.com/v1",
+    "perplexity": "https://api.perplexity.ai",
     "lmstudio": "http://localhost:1234/v1",
     "vllm": "http://localhost:8000/v1",
+    "nim": "https://integrate.api.nvidia.com/v1",
+    "nvembed": "https://integrate.api.nvidia.com/v1",
+    "fireworks": "https://api.fireworks.ai/inference/v1",
+    "cerebras": "https://api.cerebras.ai/v1",
+    "compat": "",
+}
+
+#: Human-facing label per provider type, surfaced by ``GET /providers/types``
+#: so the UI never has to hardcode provider names. ``compat`` is the generic
+#: "Custom / OpenAI-compatible" option that must always be available.
+PROVIDER_LABELS: dict[str, str] = {
+    "ollama": "Ollama",
+    "openai": "OpenAI",
+    "azure_openai": "Azure OpenAI",
+    "anthropic": "Anthropic",
+    "gemini": "Google Gemini",
+    "openrouter": "OpenRouter",
+    "together": "Together AI",
+    "groq": "Groq",
+    "deepseek": "DeepSeek",
+    "mistral": "Mistral",
+    "xai": "xAI",
+    "cohere": "Cohere",
+    "perplexity": "Perplexity",
+    "lmstudio": "LM Studio",
+    "vllm": "vLLM",
+    "nim": "NVIDIA NIM",
+    "nvembed": "NVIDIA NV-Embed",
+    "fireworks": "Fireworks AI",
+    "cerebras": "Cerebras",
+    "compat": "Custom / OpenAI-compatible",
 }
 
 SUPPORTED_PROVIDER_TYPES = frozenset(DEFAULT_BASE_URLS)
@@ -44,6 +86,13 @@ class ProviderConfig(BaseModel):
     base_url: str | None = None
     api_key_env: str | None = None
     api_key_ref: str | None = None
+
+    #: In-memory API key used to build a provider (draft probes or a key
+    #: injected from the backend's encrypted credential store). Write-only:
+    #: excluded from every serialization (model_dump / to_file) and from reprs,
+    #: so a key carried on this field can never reach providers.yaml, an API
+    #: response, or a log line.
+    api_key: str | None = Field(default=None, exclude=True, repr=False)
 
     model: str = ""
     embed_model: str = ""
@@ -74,6 +123,14 @@ class ProviderConfig(BaseModel):
                 f"supported: {', '.join(sorted(SUPPORTED_PROVIDER_TYPES))}"
             )
         return value
+
+    @model_validator(mode="after")
+    def _require_base_url_for_compat(self) -> ProviderConfig:
+        if self.type == "compat" and not self.base_url:
+            raise ValueError(
+                "base_url is required for a custom OpenAI-compatible provider"
+            )
+        return self
 
     def effective_name(self) -> str:
         return self.name or self.type
@@ -143,9 +200,26 @@ class ProvidersConfig(BaseModel):
             raise ValueError("Unsupported config format; use .yaml, .yml or .toml")
         return cls.model_validate(data)
 
+    def to_file(self, path: str | Path) -> None:
+        """Persist this configuration to a YAML file (creating parent dirs).
+
+        ``None`` fields are omitted so the file stays readable; capability
+        overrides round-trip through PyYAML sets.
+        """
+        import yaml
+
+        file_path = Path(path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        text = yaml.safe_dump(
+            self.model_dump(exclude_none=True, mode="python"),
+            sort_keys=False,
+        )
+        file_path.write_text(text, encoding="utf-8")
+
 
 __all__ = [
     "DEFAULT_BASE_URLS",
+    "PROVIDER_LABELS",
     "ProvidersConfig",
     "ProviderConfig",
     "SUPPORTED_PROVIDER_TYPES",

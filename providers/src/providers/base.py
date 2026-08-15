@@ -16,7 +16,7 @@ standard HTTP endpoints through :class:`ProviderTransport`.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 
 from ai.core.errors import ProviderError, UnsupportedCapabilityError
@@ -54,17 +54,51 @@ from providers.transport import ProviderTransport
 
 
 def resolve_api_key(config: ProviderConfig) -> str | None:
-    """Resolve the API key from environment references only.
+    """Resolve the API key for a provider configuration.
+
+    Resolution order:
+
+    1. ``config.api_key`` — a key carried in-memory only (a draft probe's
+       unsaved credential, or a key injected from the backend's encrypted
+       credential store). Never serialized.
+    2. a registered credential resolver (set by the backend via
+       :func:`configure_api_key_resolver` to consult its encrypted store).
+    3. the legacy environment-variable reference (``api_key_env`` /
+       ``api_key_ref``) — retained so existing deployments keep working.
 
     The key value never lives in the config file; only the environment variable
     name (``api_key_env``) or a vault/environment reference (``api_key_ref``)
-    is stored.
+    is stored, and secure credentials are stored encrypted server-side.
     """
+    if config.api_key:
+        return config.api_key
+    if _API_KEY_RESOLVER is not None:
+        stored = _API_KEY_RESOLVER(config)
+        if stored:
+            return stored
     if config.api_key_env:
         return os.getenv(config.api_key_env)
     if config.api_key_ref:
         return os.getenv(config.api_key_ref)
     return None
+
+
+#: Optional secure-store resolver installed by the application. A provider
+#: configuration is turned into a live provider only after this returns the
+#: encrypted-store credential for the provider type, so the key is decrypted
+#: server-side and never persisted or transmitted as plaintext.
+_API_KEY_RESOLVER: Callable[[ProviderConfig], str | None] | None = None
+
+
+def configure_api_key_resolver(resolver: Callable[[ProviderConfig], str | None] | None) -> None:
+    """Register (or clear) the secure credential resolver used by providers.
+
+    The resolver receives a provider configuration and returns the API key from
+    the application's encrypted credential store, or ``None`` when none is
+    stored. Called once by the backend at startup.
+    """
+    global _API_KEY_RESOLVER
+    _API_KEY_RESOLVER = resolver
 
 
 class BaseProvider(ChatProvider, EmbeddingProvider, VisionProvider, RerankerProvider):
@@ -222,5 +256,6 @@ def _vision_to_chat(request: VisionRequest) -> ChatRequest:
 __all__ = [
     "BaseProvider",
     "ProviderTransport",
+    "configure_api_key_resolver",
     "resolve_api_key",
 ]

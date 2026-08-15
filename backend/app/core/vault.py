@@ -259,6 +259,31 @@ def ensure_credential_vault(settings, store) -> CredentialVault:
     return codec
 
 
+def ensure_vault_key(settings) -> CredentialVault:
+    """Resolve a working credential vault without needing the router store.
+
+    Mirrors :func:`ensure_credential_vault`'s key resolution (explicit
+    ``AUTH_VAULT_KEY`` > persisted key file > ``SECRET_KEY`` derivation >
+    freshly generated) and persists a generated/derived key to the data
+    directory so restarts keep decrypting existing ciphertext. Used for
+    credential stores (e.g. provider API keys) that encrypt to the same
+    key file.
+    """
+    explicit = _explicit_vault_key(settings)
+    key_file = vault_key_path(settings)
+    if explicit is not None:
+        return CredentialVault(explicit)
+    persisted = _read_vault_key(key_file)
+    if persisted is not None:
+        _tighten_key_file_permissions(key_file)
+        return CredentialVault(persisted)
+    derived = _derived_vault_key(settings)
+    if derived is not None:
+        return CredentialVault(_persist_vault_key(key_file, derived))
+    generated = Fernet.generate_key().decode("ascii")
+    return CredentialVault(_persist_vault_key(key_file, generated))
+
+
 def harden_database_permissions(database_url: str) -> None:
     """Tighten permissions on the credential-bearing SQLite database file.
 

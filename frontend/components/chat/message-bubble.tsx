@@ -78,23 +78,25 @@ export function MessageBubble({
           isUser ? "items-end" : "items-start",
         )}
       >
-        <div
-          className={cn(
-            "rounded-xl px-4 py-2.5 text-sm shadow-xs",
-            isUser
-              ? "bg-primary text-primary-foreground"
-              : "border bg-card text-card-foreground",
-          )}
-        >
-          {isUser ? (
-            <p className="whitespace-pre-wrap break-words">{content}</p>
-          ) : content ? (
-            <Markdown content={content} />
-          ) : streaming ? (
-            <p className="text-muted-foreground">Thinking…</p>
-          ) : null}
-          {!isUser && streaming && content ? <Cursor /> : null}
-        </div>
+        {isUser || content || streaming ? (
+          <div
+            className={cn(
+              "rounded-xl px-4 py-2.5 text-sm shadow-xs",
+              isUser
+                ? "bg-primary text-primary-foreground"
+                : "border bg-card text-card-foreground",
+            )}
+          >
+            {isUser ? (
+              <p className="whitespace-pre-wrap break-words">{content}</p>
+            ) : content ? (
+              <Markdown content={content} />
+            ) : (
+              <p className="text-muted-foreground">Thinking…</p>
+            )}
+            {!isUser && streaming && content ? <Cursor /> : null}
+          </div>
+        ) : null}
         {!isUser && (provider || model) ? (
           <Badge variant="outline" className="text-[10px] text-muted-foreground">
             {provider ?? "provider"}

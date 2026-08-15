@@ -520,3 +520,70 @@ def test_compose_without_router_context_uses_focused_prompt() -> None:
     assert "ROUTER STATE" in plain.messages[0].content
     assert '"packages"' not in plain.messages[0].content
     assert '"logs"' not in plain.messages[0].content
+
+
+# --------------------------------------------------------------------------- #
+# Rate-limit error contract (429)                                             #
+# --------------------------------------------------------------------------- #
+
+
+def _rate_limited_handler() -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": {"message": "rate limited"}})
+
+    return handler
+
+
+def test_chat_stream_rate_limit_emits_actionable_error_event() -> None:
+    """A 429 from the provider surfaces as a clear rate-limit message — not the
+    generic stream failure — and still emits a well-formed SSE error event."""
+    manager = ProviderManager(
+        {
+            "primary": make_provider(
+                OpenAIProvider,
+                _rate_limited_handler(),
+                name="primary",
+                model="gpt-4o-mini",
+            )
+        },
+        default_provider="primary",
+    )
+    with _client(manager) as client:
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"session_id": "rl1", "message": "hi"},
+        )
+    assert response.status_code == 200
+    events = [
+        json.loads(line[len("data: ") :])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    errors = [event for event in events if event["type"] == "error"]
+    assert len(errors) == 1
+    assert "Rate limited" in errors[0]["message"]
+    assert "The AI stream failed" not in errors[0]["message"]
+
+
+def test_chat_rate_limit_returns_429_with_actionable_message() -> None:
+    """The non-streaming chat path reports the rate limit with an HTTP 429 and
+    a clear message instead of the generic failure text."""
+    manager = ProviderManager(
+        {
+            "primary": make_provider(
+                OpenAIProvider,
+                _rate_limited_handler(),
+                name="primary",
+                model="gpt-4o-mini",
+            )
+        },
+        default_provider="primary",
+    )
+    with _client(manager) as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={"session_id": "rl2", "message": "hi"},
+        )
+    assert response.status_code == 429
+    assert "Rate limited" in response.json()["detail"]
+    assert "The AI request failed" not in response.json()["detail"]

@@ -49,7 +49,11 @@ code change.
 - **Router-aware AI chat** — at `/chat`. Every turn is grounded in the latest
   router snapshot (never invented), with automatic intent detection
   (`system`, `cpu`, `memory`, `storage`, `network`), tool-backed answers,
-  streaming, chat history, and Markdown rendering.
+  streaming, chat history, and Markdown rendering. A per-category availability
+  manifest (`available`/`not_available`/`unknown`/`error`) is injected into the
+  system prompt: answers may only report values present in the live router data,
+  and when a category has no data the Copilot says so explicitly rather than
+  estimating or reusing earlier values.
 - **Diagnosis & recommendations** — deterministic engines that flag issues
   (e.g. missing WAN, high load, memory pressure, reboots) and propose
   remediation, served with the router status.

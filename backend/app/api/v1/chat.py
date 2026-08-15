@@ -19,6 +19,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
+from ai.core.errors import RateLimitError
 from app.core.auth import AuthPrincipal, require_read
 from app.core.config import settings
 from app.db.chat_store import ChatStore
@@ -36,6 +37,11 @@ _AI_FAILED_MESSAGE = (
 )
 _AI_STREAM_FAILED_MESSAGE = (
     "The AI stream failed. Check the provider configuration and try again."
+)
+#: Rate limits are transient and deserve a clear, actionable message rather
+#: than the generic failure text — the selected provider stays selected.
+_AI_RATE_LIMITED_MESSAGE = (
+    "Rate limited by provider. Please try again shortly."
 )
 
 router = APIRouter(tags=["chat"])
@@ -201,6 +207,17 @@ async def chat(
     )
     try:
         response = await service.complete(provider, chat_request)
+    except RateLimitError:
+        logger.warning(
+            "Chat completion rate limited for session %r (provider %s)",
+            body.session_id,
+            provider.name,
+        )
+        return Response(
+            content=json.dumps({"detail": _AI_RATE_LIMITED_MESSAGE}),
+            status_code=429,
+            media_type="application/json",
+        )
     except Exception:  # noqa: BLE001 - surfaced as a clean error
         logger.exception("Chat completion failed for session %r", body.session_id)
         return Response(
@@ -336,6 +353,14 @@ async def chat_stream(
                 if chunk.delta:
                     reply_parts.append(chunk.delta)
                     yield _sse({"type": "delta", "content": chunk.delta})
+        except RateLimitError:
+            logger.warning(
+                "Chat stream rate limited for session %r (provider %s)",
+                body.session_id,
+                provider.name,
+            )
+            yield _sse({"type": "error", "message": _AI_RATE_LIMITED_MESSAGE})
+            return
         except Exception:  # noqa: BLE001 - keep streaming contract
             logger.exception("Chat stream failed for session %r", body.session_id)
             yield _sse({"type": "error", "message": _AI_STREAM_FAILED_MESSAGE})

@@ -41,6 +41,27 @@ PACKAGE_CACHE_TTL_S = 30.0
 # ``opkg list`` is expensive; cache the raw output for searches.
 PACKAGE_LIST_TTL_S = 120.0
 
+# Heading labels emitted by ``apk info -a`` block output (lower-cased). Only a
+# heading whose label is in this set starts a new block; anything else is a
+# value line belonging to the current block.
+_APK_INFO_FIELDS = {
+    "description",
+    "webpage",
+    "maintainer",
+    "license",
+    "installed size",
+    "download size",
+    "depends on",
+    "provides",
+    "is required by",
+    "contains",
+    "triggers",
+    "has auto-install rule",
+    "affects auto-installation of",
+    "replaces",
+    "section",
+}
+
 # Many OpenWrt busy-box builds lack ``base64``/``od`` but ship ``hexdump`` and a
 # multi-call ``printf``. Binary is therefore transferred as ``hexdump -C`` output
 # for download and written back with ``printf '\xHH...'`` (in chunks) for upload.
@@ -402,6 +423,27 @@ class RouterManagementService:
         return pkgid, ""
 
     @staticmethod
+    def _split_apk_stream(text: str) -> tuple[list[str], list[str]]:
+        """Separate apk data lines from stderr diagnostics.
+
+        The command runner merges stderr into stdout, so apk warnings such as
+        ``WARNING: opening from cache ... No such file or directory`` arrive on
+        the same stream as the real output. A warning line is never package
+        data, so it is bucketed separately.
+        """
+        data: list[str] = []
+        warnings: list[str] = []
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith(("WARNING:", "ERROR:")):
+                warnings.append(line)
+            else:
+                data.append(line)
+        return data, warnings
+
+    @staticmethod
     def _parse_apk_installed(text: str) -> list[tuple[str, str]]:
         packages: list[tuple[str, str]] = []
         for line in text.splitlines():
@@ -415,21 +457,90 @@ class RouterManagementService:
 
     @staticmethod
     def _parse_apk_upgradable(text: str) -> dict[str, str]:
-        """Map package name -> available version for ``apk list --upgradable``."""
+        """Map package name -> available version for ``apk list --upgradable``.
+
+        ``apk list --upgradable`` only prints packages that can be upgraded and
+        the version embedded in each line's pkgid is the available version.
+        Only lines carrying the ``[upgradable`` marker are considered, so a
+        stray ``list --installed`` style line can never pollute the result.
+        """
         upgrades: dict[str, str] = {}
-        match_braces = re.compile(r"\{([^{}]+)\}")
         for line in text.splitlines():
             line = line.strip()
-            if not line:
+            if not line or line.startswith(("WARNING:", "ERROR:")):
+                continue
+            if "[upgradable" not in line:
                 continue
             pkgid = line.split()[0]
             name, _ = RouterManagementService._split_apk_pkgid(pkgid)
+            _candidate, available = RouterManagementService._split_apk_pkgid(pkgid)
+            if name and available:
+                upgrades[name] = available
+        return upgrades
+
+    @staticmethod
+    def _parse_apk_installed_db(text: str) -> dict[str, dict[str, Any]]:
+        """Parse ``/lib/apk/db/installed`` into ``{name: details}``.
+
+        The apk-world database is a ``KEY:value`` stream where each package
+        stanza starts with ``P:<name>``. Keys of interest: ``V`` (version),
+        ``A`` (architecture), ``S`` (package size), ``I`` (installed size),
+        ``T`` (description), ``U`` (homepage), ``L`` (license), ``o`` (origin /
+        repository path) and ``D`` (space/comma separated dependencies).
+        """
+        stanzas: dict[str, dict[str, str]] = {}
+        current_name: str | None = None
+        current: dict[str, str] = {}
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("P:"):
+                current_name = line[2:].strip()
+                current = {}
+                stanzas[current_name] = current
+                continue
+            if current_name is None:
+                continue
+            key, sep, value = line.partition(":")
+            if not sep:
+                continue
+            current[key] = value.strip()
+        result: dict[str, dict[str, Any]] = {}
+        for name, fields in stanzas.items():
             if not name:
                 continue
-            found = match_braces.search(line)
-            if found:
-                upgrades[name] = found.group(1).strip()
-        return upgrades
+            result[name] = {
+                "version": fields.get("V", ""),
+                "architecture": fields.get("A"),
+                "size": RouterManagementService._as_int(fields.get("S")),
+                "installed_size": RouterManagementService._as_int(fields.get("I")),
+                "description": fields.get("T", ""),
+                "homepage": fields.get("U", ""),
+                "maintainer": fields.get("m", ""),
+                "license": fields.get("L"),
+                "origin": fields.get("o", ""),
+                "depends": [
+                    dep for dep in re.split(r"[, ]+", fields.get("D", "")) if dep
+                ],
+            }
+        return result
+
+    @staticmethod
+    def _parse_apk_human_size(value: str) -> int | None:
+        """Convert apk's human size strings (``304 KiB``) to bytes."""
+        if not value:
+            return None
+        match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(B|KiB|MiB|GiB)?\s*$", value)
+        if not match:
+            return None
+        try:
+            number = float(match.group(1))
+        except ValueError:
+            return None
+        unit = match.group(2) or "B"
+        multiplier = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3}[unit]
+        return int(number * multiplier)
 
     @staticmethod
     def _parse_opkg_installed(text: str) -> list[tuple[str, str]]:
@@ -471,7 +582,9 @@ class RouterManagementService:
                 upgrades = self._parse_apk_upgradable(
                     self.run(transport, "apk list --upgradable").stdout
                 )
-                status: dict[str, dict[str, Any]] = {}
+                status = self._parse_apk_installed_db(
+                    self.run(transport, "cat /lib/apk/db/installed 2>/dev/null").stdout
+                )
             elif manager == "opkg":
                 installed = self._parse_opkg_installed(
                     self.run(transport, "opkg list-installed").stdout
@@ -496,10 +609,12 @@ class RouterManagementService:
                         "name": name,
                         "version": details.get("version") or version,
                         "upgrade": upgrades.get(name),
-                        "size": details.get("size"),
+                        "size": details.get("installed_size") or details.get("size"),
                         "architecture": details.get("architecture"),
                         "description": details.get("description"),
                         "depends": details.get("depends", []),
+                        "source": details.get("origin"),
+                        "license": details.get("license"),
                     }
                 )
             packages.sort(key=lambda pkg: pkg["name"].lower())
@@ -699,17 +814,36 @@ class RouterManagementService:
             raise RouterManagementError("A search query is required.")
         manager = self._pkg_manager()
         results: list[dict[str, Any]] = []
+        repository_state: dict[str, Any] = {"available": True, "reason": "ok"}
         if manager == "apk":
             text = self._pkg_run(
                 f"apk search -v -q {self._sh_quote(needle)}",
                 timeout=60.0,
             ).stdout
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
+            data_lines, warnings = RouterManagementService._split_apk_stream(text)
+            for line in data_lines:
+                pkgid = line.split()[0]
+                name, version = RouterManagementService._split_apk_pkgid(pkgid)
+                if not name:
                     continue
-                name, version = RouterManagementService._split_apk_pkgid(line.split()[0])
-                results.append({"name": name, "version": version, "description": ""})
+                description = ""
+                rest = line[len(pkgid):].strip()
+                if rest.startswith("-"):
+                    description = rest[1:].strip()
+                elif " - " in rest:
+                    description = rest.split(" - ", 1)[1].strip()
+                elif rest:
+                    description = rest
+                results.append({"name": name, "version": version, "description": description})
+            if not data_lines and warnings:
+                repository_state = {
+                    "available": False,
+                    "reason": (
+                        "The package repository database is unavailable on the "
+                        "router (apk could not open its cache indexes)."
+                    ),
+                    "detail": warnings[:3],
+                }
         elif manager == "opkg":
             now = time.monotonic()
             if not self._opkg_list_text or (now - self._opkg_list_at) >= PACKAGE_LIST_TTL_S:
@@ -734,65 +868,75 @@ class RouterManagementService:
             "manager": manager,
             "count": len(results[:limit]),
             "results": results[:limit],
+            "repository": repository_state,
         }
 
     @staticmethod
     def _parse_apk_info(text: str, name: str) -> dict[str, Any]:
-        """Best-effort parse of ``apk info -a <name>`` output."""
+        """Parse the field-block format ``apk info -a <name>`` really emits.
+
+        Real OpenWrt 25 output (verified on-device) is a sequence of blocks::
+
+            dnsmasq-2.91-r2 description:
+            It is intended to provide coupled DNS and DHCP service to a LAN.
+
+            dnsmasq-2.91-r2 depends on:
+            libc
+            libubus20251202
+
+            dnsmasq-2.91-r2 installed size:
+            304 KiB
+
+        Every block starts with a ``<pkgid> <field>:`` heading and the value
+        spans the following lines (a single line for scalar fields, several
+        lines for ``depends on``). ``WARNING``/``ERROR`` lines from stderr are
+        skipped.
+        """
         version = ""
-        description = ""
-        installed_size: int | None = None
-        download_size: int | None = None
-        depends: list[str] = []
-        pending: str | None = None
+        fields: dict[str, list[str]] = {}
+        current: str | None = None
         for raw in text.splitlines():
-            line = raw.rstrip()
-            stripped = line.strip()
-            if not stripped:
+            line = raw.strip()
+            if not line:
                 continue
-            if stripped.startswith("Installed:"):
-                value = stripped.partition(":")[2].strip()
-                if value.isdigit():
-                    installed_size = int(value)
-                pending = None
+            if line.startswith(("WARNING:", "ERROR:")):
                 continue
-            if stripped.startswith("Size:"):
-                value = stripped.partition(":")[2].strip()
-                if value.isdigit():
-                    download_size = int(value)
-                pending = None
+            header_match = re.match(r"^(\S+)\s+(.+?):$", line)
+            if header_match and header_match.group(2).strip().lower() in _APK_INFO_FIELDS:
+                pkgid = header_match.group(1)
+                candidate, parsed = RouterManagementService._split_apk_pkgid(pkgid)
+                if candidate == name and parsed and not version:
+                    version = parsed
+                field = header_match.group(2).strip().lower()
+                if field not in fields:
+                    fields[field] = []
+                current = field
+                inline = line[len(pkgid):].split(":", 1)[1].strip()
+                if inline:
+                    fields[current].append(inline)
                 continue
-            if line[:1] in (" ", "\t"):
-                if pending == "description":
-                    description = f"{description} {stripped}".strip()
-                elif pending == "depends" and not stripped.startswith(("so:", "pc:", "rr:")):
-                    depends.append(stripped)
+            if current is None:
                 continue
-            if stripped.endswith("description:"):
-                pending = "description"
-                header = stripped.rpartition(":")[0].strip()
-                if header:
-                    candidate, parsed_version = RouterManagementService._split_apk_pkgid(header)
-                    if candidate == name and not version:
-                        version = parsed_version
-            elif stripped.endswith("depends:"):
-                pending = "depends"
-                value = stripped.rpartition(":")[2].strip()
-                if value:
-                    depends.append(value)
-            else:
-                pending = None
+            fields[current].append(line)
         return {
             "version": version,
             "architecture": "",
-            "description": description,
-            "homepage": "",
-            "maintainer": "",
-            "license": "",
-            "depends": [dep for dep in depends if dep],
+            "description": " ".join(fields.get("description", [])).strip(),
+            "homepage": fields.get("webpage", [""])[0],
+            "maintainer": fields.get("maintainer", [""])[0],
+            "license": fields.get("license", [""])[0],
+            "depends": [
+                dep
+                for dep in fields.get("depends on", [])
+                if dep and not dep.startswith(("so:", "pc:", "rr:"))
+            ],
             "section": None,
-            "installed_size": installed_size,
-            "download_size": download_size,
+            "installed_size": RouterManagementService._parse_apk_human_size(
+                fields.get("installed size", [""])[0]
+            ),
+            "download_size": RouterManagementService._parse_apk_human_size(
+                fields.get("download size", [""])[0]
+            ),
         }
 
     def package_details(self, name: str) -> dict[str, Any]:

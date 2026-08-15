@@ -29,6 +29,7 @@ from app.services.router_management import RouterManagementService
 from app.services.router_manager import RouterManager
 from app.services.router_tool import RouterTool
 from app.services.snapshot_service import RouterConnection, SnapshotService
+from app.services.speed_test import SpeedTestService
 from database.session import init_db
 
 #: Authenticated state prefixes that must never be cached by a browser/shared
@@ -69,8 +70,16 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     # Configure the credential vault before any router record is read or written:
     # encryption-at-rest for new credentials and a one-time migration of legacy
     # plaintext. Fails fast when stored credentials need a key that is missing.
-    ensure_credential_vault(settings, router_store)
+    vault = ensure_credential_vault(settings, router_store)
     harden_database_permissions(settings.database_url)
+    # Encrypted provider API-key store (same vault key). Keys are never stored
+    # in providers.yaml; the store also feeds the provider factory's credential
+    # resolver so live providers authenticate with the stored key.
+    from app.services.provider_credentials import build_store, configure_store
+
+    credential_store = build_store(settings, vault)
+    configure_store(credential_store)
+    application.state.provider_credentials = credential_store
     application.state.provider_manager = load_provider_manager()
     snapshot_service = SnapshotService()
     # If a router was configured previously (onboarding), reconnect to it so the
@@ -158,6 +167,10 @@ def create_app() -> FastAPI:
     # Management job -> creating-principal index (see api.v1.management).
     # Kept per-application so tests get an isolated registry per app instance.
     application.state.management_job_owners = {}
+
+    # In-memory internet speed-test service (latest result + run gate). Bound
+    # to the app instance so tests get an isolated copy.
+    application.state.speed_test_service = SpeedTestService()
 
     application.include_router(api_router, prefix=settings.api_prefix)
 

@@ -20,6 +20,21 @@ _FACTORIES: dict[str, type[BaseProvider]] = {}
 
 def _register_defaults() -> None:
     """Register every built-in provider type (idempotent)."""
+    from providers.compat_cloud import (
+        AnthropicProvider,
+        AzureOpenAIProvider,
+        CerebrasProvider,
+        CohereProvider,
+        CompatProvider,
+        DeepSeekProvider,
+        FireworksProvider,
+        GeminiProvider,
+        GroqProvider,
+        MistralProvider,
+        PerplexityProvider,
+        TogetherProvider,
+        XAIProvider,
+    )
     from providers.lmstudio import LMStudioProvider
     from providers.nim import NIMProvider
     from providers.nv_embed import NVEmbedProvider
@@ -36,6 +51,19 @@ def _register_defaults() -> None:
         OpenRouterProvider,
         LMStudioProvider,
         VLLMProvider,
+        CompatProvider,
+        AzureOpenAIProvider,
+        AnthropicProvider,
+        GeminiProvider,
+        TogetherProvider,
+        GroqProvider,
+        DeepSeekProvider,
+        MistralProvider,
+        XAIProvider,
+        CohereProvider,
+        PerplexityProvider,
+        FireworksProvider,
+        CerebrasProvider,
     ):
         _FACTORIES.setdefault(cls.provider_type, cls)
 

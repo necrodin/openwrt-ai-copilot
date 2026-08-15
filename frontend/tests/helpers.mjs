@@ -44,6 +44,14 @@ export function loadPackagesUtilsModule() {
   return jiti(path.join(process.cwd(), "lib/packages-utils.ts"));
 }
 
+export function loadProvidersModule() {
+  return jiti(path.join(process.cwd(), "lib/providers.ts"));
+}
+
+export function loadSpeedTestModule() {
+  return jiti(path.join(process.cwd(), "lib/speed-test.ts"));
+}
+
 /** A syntactically-complete `DeviceSnapshot` the TS logic can consume. */
 export function makeSnapshot(overrides = {}) {
   return {

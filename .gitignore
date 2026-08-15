@@ -37,3 +37,12 @@ data/
 
 # --- Logs ---
 *.log
+
+# --- Runtime secrets / managed state ---
+# Encrypted provider API-key store (Fernet ciphertext) written next to
+# providers.yaml at runtime. Never commit credential state.
+provider_credentials.json
+vault.key
+
+# Generated E2E evaluation outputs
+backend/e2e_evals/outputs/

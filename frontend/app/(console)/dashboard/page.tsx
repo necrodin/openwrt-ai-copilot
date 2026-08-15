@@ -16,6 +16,7 @@ import { MemoryWidget } from "@/components/dashboard/memory-widget";
 import { RecommendationsWidget } from "@/components/dashboard/recommendations-widget";
 import { StorageWidget } from "@/components/dashboard/storage-widget";
 import { ServicesWidget } from "@/components/dashboard/services-widget";
+import { SpeedTestWidget } from "@/components/dashboard/speed-test-widget";
 import { TemperatureWidget } from "@/components/dashboard/temperature-widget";
 import { VpnWidget } from "@/components/dashboard/vpn-widget";
 import { WanWidget } from "@/components/dashboard/wan-widget";
@@ -181,6 +182,7 @@ export default function DashboardPage() {
         </header>
 
         <WidgetGrid>
+          <SpeedTestWidget />
           <HealthScoreWidget snapshot={snapshot} loading={widgetLoading} error={widgetError} />
           <CpuWidget cpu={snapshot?.cpu ?? null} loading={widgetLoading} error={widgetError} />
           <MemoryWidget memory={snapshot?.memory ?? null} loading={widgetLoading} error={widgetError} />

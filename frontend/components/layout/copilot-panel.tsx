@@ -13,7 +13,11 @@ import { MessageBubble } from "@/components/chat/message-bubble";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useChat } from "@/hooks/use-chat";
+import { chatSelection, listProviders, selectableProviders, type ProviderSummary } from "@/lib/providers";
 import { cn } from "@/lib/utils";
+
+const providerSelectClasses =
+  "h-7 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs text-foreground shadow-xs";
 
 /**
  * The real AI Copilot — a conversation-only panel, rendered as a native child
@@ -35,6 +39,71 @@ export function CopilotPanel({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const streaming = chat.status === "streaming";
   const [showSessions, setShowSessions] = useState(false);
+
+  const [providerOptions, setProviderOptions] = useState<ProviderSummary[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
+  const [defaultProvider, setDefaultProviderSummary] = useState<ProviderSummary | null>(null);
+
+  // Model picker state: "provider" uses the selected provider's configured
+  // model; "custom" lets the operator type any model for the next message.
+  // Switching provider resets back to the provider's configured model.
+  const [modelMode, setModelMode] = useState<"provider" | "custom">("provider");
+  const [customModel, setCustomModel] = useState("");
+
+  const resetModelSelection = () => {
+    setModelMode("provider");
+    setCustomModel("");
+  };
+
+  const selectProvider = (type: string | null) => {
+    setSelectedProvider(type);
+    resetModelSelection();
+  };
+
+  // Load enabled providers once so the selector never hardcodes provider
+  // names. Best-effort: if the list cannot be fetched the Copilot keeps
+  // working through the backend default and the selector simply stays hidden.
+  useEffect(() => {
+    let cancelled = false;
+    listProviders()
+      .then((list) => {
+        if (cancelled) {
+          return;
+        }
+        const selectable = selectableProviders(list.providers);
+        setProviderOptions(selectable);
+        const fallback =
+          selectable.find((provider) => provider.type === list.default_provider) ?? null;
+        setDefaultProviderSummary(fallback);
+        setSelectedProvider(fallback ? fallback.type : null);
+      })
+      .catch(() => {
+        // Best-effort: keep the panel usable with the backend default.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Selection for the NEXT chat request only: the configured model of the
+  // chosen provider (or a manual override), or the backend default when
+  // nothing is selected.
+  const selection = chatSelection(
+    providerOptions,
+    selectedProvider,
+    modelMode === "custom" ? customModel : "",
+  );
+
+  // The selected provider's configured model (what "provider mode" sends).
+  const configuredModel =
+    providerOptions.find((provider) => provider.type === selectedProvider)?.model || null;
+
+  const startNewChat = () => {
+    chat.startNewSession();
+    // A fresh conversation starts from the configured global default; the
+    // global default itself is never changed by the in-chat selector.
+    selectProvider(defaultProvider ? defaultProvider.type : null);
+  };
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -59,51 +128,105 @@ export function CopilotPanel({
 
   return (
     <div className="fixed inset-y-0 right-0 z-40 flex w-80 flex-col border-l bg-background shadow-2xl lg:static lg:z-auto lg:w-80 lg:shadow-none">
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <Bot className="size-4 shrink-0 text-primary" aria-hidden />
-          <h2 className="truncate text-sm font-semibold">AI Copilot</h2>
+      <header className="flex shrink-0 flex-col border-b">
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <Bot className="size-4 shrink-0 text-primary" aria-hidden />
+            <h2 className="truncate text-sm font-semibold">AI Copilot</h2>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <StatusBadge
+              label={streaming ? "Streaming" : "Ready"}
+              tone={streaming ? "info" : "neutral"}
+              dot={false}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={() => setShowSessions((value) => !value)}
+              aria-label="Toggle sessions"
+              title="Chat sessions"
+            >
+              <MessageSquareText className="size-4" aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={startNewChat}
+              aria-label="New chat"
+              title="New chat"
+            >
+              <Plus className="size-4" aria-hidden />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={onToggle}
+              aria-label="Collapse AI Copilot"
+              title="Collapse AI Copilot"
+            >
+              <ChevronLeft className="size-4" aria-hidden />
+            </Button>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <StatusBadge
-            label={streaming ? "Streaming" : "Ready"}
-            tone={streaming ? "info" : "neutral"}
-            dot={false}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => setShowSessions((value) => !value)}
-            aria-label="Toggle sessions"
-            title="Chat sessions"
-          >
-            <MessageSquareText className="size-4" aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={chat.startNewSession}
-            aria-label="New chat"
-            title="New chat"
-          >
-            <Plus className="size-4" aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={onToggle}
-            aria-label="Collapse AI Copilot"
-            title="Collapse AI Copilot"
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-          </Button>
-        </div>
+
+        {providerOptions.length > 0 ? (
+          <div className="flex items-center gap-1.5 border-t px-3 py-1.5">
+            <select
+              aria-label="AI provider"
+              title="AI provider used for the next message"
+              className={providerSelectClasses}
+              value={selectedProvider ?? ""}
+              onChange={(event) => selectProvider(event.target.value || null)}
+              disabled={streaming}
+            >
+              {selectedProvider === null ? (
+                <option value="">Select provider…</option>
+              ) : null}
+              {providerOptions.map((provider) => (
+                <option key={provider.type} value={provider.type}>
+                  {provider.name || provider.type}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Model"
+              title="Model used for the next message"
+              className={providerSelectClasses}
+              value={modelMode === "custom" ? "__custom__" : "__configured__"}
+              onChange={(event) => {
+                if (event.target.value === "__custom__") {
+                  setModelMode("custom");
+                } else {
+                  setModelMode("provider");
+                }
+              }}
+              disabled={streaming}
+            >
+              <option value="__configured__">
+                {configuredModel ?? "Default model"}
+              </option>
+              <option value="__custom__">Custom model…</option>
+            </select>
+            {modelMode === "custom" ? (
+              <input
+                aria-label="Custom model"
+                title="Type any model for the next message"
+                className={providerSelectClasses}
+                value={customModel}
+                onChange={(event) => setCustomModel(event.target.value)}
+                placeholder="e.g. gpt-4o-mini"
+                disabled={streaming}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
@@ -116,7 +239,7 @@ export function CopilotPanel({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs"
-                onClick={chat.startNewSession}
+                onClick={startNewChat}
               >
                 <Plus className="size-3" aria-hidden />
                 New
@@ -183,7 +306,7 @@ export function CopilotPanel({
 
       <footer className="shrink-0 border-t p-3">
         <ChatInput
-          onSend={(message) => void chat.sendMessage(message, null, null)}
+          onSend={(message) => void chat.sendMessage(message, selection.provider, selection.model)}
           onStop={chat.stopStreaming}
           streaming={streaming}
           disabled={chat.status === "error"}

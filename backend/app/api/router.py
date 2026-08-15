@@ -13,6 +13,7 @@ from app.api.v1 import (
     providers,
     router_status,
     setup,
+    speed_test,
 )
 from app.api.v1 import router as router_endpoints
 from app.core.auth import require_read
@@ -41,4 +42,5 @@ api_router.include_router(
     client_labels.router, prefix="/v1", dependencies=[Depends(require_read)]
 )
 api_router.include_router(management.router, prefix="/v1", dependencies=[Depends(require_read)])
+api_router.include_router(speed_test.router, prefix="/v1", dependencies=[Depends(require_read)])
 api_router.include_router(chat.router, prefix="/v1", dependencies=[Depends(require_read)])

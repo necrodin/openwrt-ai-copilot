@@ -88,6 +88,28 @@ class Settings(BaseSettings):
     # as a derivation source; with neither configured the key is generated.
     auth_vault_key: str = ""
 
+    # Internet speed test (read-only measurement of the management host's link,
+    # stdlib only — never router commands). Latency/jitter use TCP connect
+    # timings to a public host; download/upload use bounded HTTPS transfers to
+    # public, credential-free endpoints. Both URLs are fully operator
+    # configurable; leave one empty to skip that measurement.
+    speed_test_latency_host: str = "1.1.1.1"
+    speed_test_latency_port: int = 443
+    speed_test_download_url: str = "https://speed.cloudflare.com/__down?bytes=20000000"
+    speed_test_upload_url: str = "https://speed.cloudflare.com/__up"
+    # Path to a PEM CA bundle used to verify the speed-test endpoints' TLS
+    # certificates. Empty = the platform's default trust store (always
+    # verified; TLS verification is never disabled).
+    speed_test_ca_bundle: str = ""
+    # Hard bounds that cap the cost of one test (bytes and/or wall-clock).
+    speed_test_max_bytes: int = 20_000_000
+    speed_test_upload_bytes: int = 8_000_000
+    speed_test_max_duration_seconds: float = 15.0
+    speed_test_latency_samples: int = 10
+    speed_test_latency_timeout_seconds: float = 3.0
+    # Minimum gap between manual tests; prevents repeated/concurrent abuse.
+    speed_test_cooldown_seconds: float = 30.0
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -113,60 +113,76 @@ export function useChat() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      await streamChatMessage(
-        { session_id: sessionId, message: trimmed, provider, model },
-        {
-          signal: controller.signal,
-          onDelta: (delta) => {
-            setMessages((prev) => {
-              const next = [...prev];
-              const current = next[next.length - 1];
-              if (current?.role === "assistant") {
-                next[next.length - 1] = {
-                  ...current,
-                  content: current.content + delta,
-                };
-              }
-              return next;
-            });
+      // Finalize the assistant turn after an error/stop: mark it idle so the
+      // send button is restored and the panel never stays stuck "streaming".
+      const finalizeAssistant = (update: Partial<ChatTurn>) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const current = next[next.length - 1];
+          if (current?.role === "assistant") {
+            next[next.length - 1] = { ...current, ...update };
+          }
+          return next;
+        });
+      };
+
+      try {
+        await streamChatMessage(
+          { session_id: sessionId, message: trimmed, provider, model },
+          {
+            signal: controller.signal,
+            onDelta: (delta) => {
+              setMessages((prev) => {
+                const next = [...prev];
+                const current = next[next.length - 1];
+                if (current?.role === "assistant") {
+                  next[next.length - 1] = {
+                    ...current,
+                    content: current.content + delta,
+                  };
+                }
+                return next;
+              });
+            },
+            onDone: (event) => {
+              finalizeAssistant({
+                content: event.reply || "",
+                provider: event.provider,
+                model: event.model,
+                streaming: false,
+                router_context: event.router_context ?? null,
+              });
+              setStatus("idle");
+              void refreshSessions();
+            },
+            onError: (message) => {
+              // Server reported a stream error: drop the empty bubble, surface
+              // the message, and restore the input.
+              setMessages((prev) => prev.slice(0, -1));
+              setError(message);
+              setStatus("idle");
+            },
           },
-          onDone: (event) => {
-            setMessages((prev) => {
-              const next = [...prev];
-              const current = next[next.length - 1];
-              if (current?.role === "assistant") {
-                next[next.length - 1] = {
-                  ...current,
-                  content: event.reply || current.content,
-                  provider: event.provider,
-                  model: event.model,
-                  streaming: false,
-                  router_context: event.router_context ?? null,
-                };
-              }
-              return next;
-            });
+        );
+      } catch (error) {
+        if (mountedRef.current) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            // User stopped the stream: keep the partial reply and unlock input.
+            finalizeAssistant({ streaming: false });
             setStatus("idle");
-            void refreshSessions();
-          },
-          onError: (message) => {
-            setMessages((prev) => {
-              const next = [...prev];
-              const current = next[next.length - 1];
-              if (current?.role === "assistant") {
-                next[next.length - 1] = {
-                  ...current,
-                  content: "",
-                  streaming: false,
-                };
-              }
-              return next;
-            });
-            setError(message);
+          } else {
+            setMessages((prev) => prev.slice(0, -1));
+            setError(
+              error instanceof Error ? error.message : "The AI stream ended unexpectedly.",
+            );
             setStatus("idle");
-          },
-        },
-      );
+          }
+        }
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
+      }
     },
     [activeSessionId, refreshSessions, status, stopStreaming],
   );
