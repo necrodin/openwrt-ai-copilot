@@ -19,6 +19,50 @@ encrypted on your own server.
 The application is free for personal, non-commercial use under the
 [OpenWrt AI Copilot Personal Non-Commercial License](LICENSE).
 
+## Screenshots
+
+### Dashboard
+
+Live router health, system resources, network status, connected clients,
+and network speed testing from a single dashboard.
+
+![OpenWrt AI Copilot Dashboard](assets/screenshots/dashboard.png)
+
+### AI Providers
+
+Configure multiple AI providers, discover available models, test
+connectivity, and manage provider credentials securely.
+
+![OpenWrt AI Copilot AI Providers](assets/screenshots/ai-providers.png)
+
+### System
+
+View live OpenWrt system information including firmware, kernel, uptime,
+storage, timezone, and NTP configuration.
+
+![OpenWrt AI Copilot System](assets/screenshots/system.png)
+
+### Packages
+
+Search the configured OpenWrt repositories and install packages directly
+from the web interface.
+
+![OpenWrt AI Copilot Packages](assets/screenshots/packages.png)
+
+### Settings
+
+Configure routers and AI providers from the centralized application
+settings interface.
+
+![OpenWrt AI Copilot Settings](assets/screenshots/settings.png)
+
+### About
+
+View the application and backend versions, environment information,
+license, and project details.
+
+![OpenWrt AI Copilot About](assets/screenshots/about.png)
+
 ## Features
 
 - **AI Copilot.** Streaming natural-language chat grounded in the live router
