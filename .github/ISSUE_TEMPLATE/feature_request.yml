@@ -1,0 +1,68 @@
+name: 💡 Feature Request
+description: Suggest an idea or improvement for OpenWrt AI Copilot
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve OpenWrt AI Copilot.
+
+        Please search existing issues first to avoid duplicate requests.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this feature solve?
+      description: Describe the problem, limitation, or use case behind your request.
+      placeholder: |
+        I am trying to...
+        Currently, it is difficult to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe how you think the feature should work.
+      placeholder: Describe your proposed solution...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any alternative solutions or workarounds you have tried.
+      placeholder: What alternatives or workarounds have you considered?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this relate to?
+      options:
+        - AI Copilot
+        - AI Providers
+        - Dashboard
+        - Network
+        - Monitoring
+        - Security
+        - Router Management
+        - Package Management
+        - Multi-router Support
+        - Authentication / Security
+        - API
+        - UI / UX
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+      description: Screenshots, examples, mockups, or other context that may help.
+      placeholder: Add any additional context here...

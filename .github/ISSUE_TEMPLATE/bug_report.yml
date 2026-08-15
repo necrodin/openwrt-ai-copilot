@@ -1,0 +1,120 @@
+name: 🐛 Bug Report
+description: Report a reproducible problem with OpenWrt AI Copilot
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug in OpenWrt AI Copilot.
+
+        Before submitting, please make sure you are using the latest release and check existing issues for duplicates.
+
+  - type: input
+    id: copilot-version
+    attributes:
+      label: OpenWrt AI Copilot version
+      description: Which version are you running?
+      placeholder: "v1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: openwrt-version
+    attributes:
+      label: OpenWrt version
+      description: Which OpenWrt version is running on your router?
+      placeholder: "OpenWrt 25.12.0"
+    validations:
+      required: true
+
+  - type: input
+    id: router-model
+    attributes:
+      label: Router model
+      description: What router/device are you using?
+      placeholder: "Xiaomi AIoT AC2350"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package-manager
+    attributes:
+      label: Package manager
+      description: Which package manager does your OpenWrt installation use?
+      options:
+        - apk
+        - opkg
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: AI provider
+      description: Which AI provider were you using when the problem occurred?
+      options:
+        - None / AI not involved
+        - OpenAI
+        - Azure OpenAI
+        - Anthropic
+        - DeepSeek
+        - Google Gemini
+        - Groq
+        - Mistral
+        - NVIDIA NIM
+        - OpenRouter
+        - Ollama
+        - Together AI
+        - vLLM
+        - xAI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Clearly describe the problem.
+      placeholder: Tell us what went wrong...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us how we can reproduce the problem.
+      placeholder: |
+        1. Go to...
+        2. Configure...
+        3. Click...
+        4. The problem occurs...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: Describe the expected behavior...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error messages
+      description: Remove passwords, API keys, tokens, MAC addresses, public IPs and other sensitive information before posting.
+      render: text
+      placeholder: Paste relevant logs or error messages here...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+      description: Screenshots, configuration details, or anything else that may help.
+      placeholder: Add any additional context here...

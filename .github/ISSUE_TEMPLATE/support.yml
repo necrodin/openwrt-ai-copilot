@@ -1,0 +1,121 @@
+name: 🆘 Support / Installation Help
+description: Get help with installation, configuration, connectivity, or usage
+title: "[Support]: "
+labels:
+  - support
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Need help with OpenWrt AI Copilot?
+
+        Please provide as much information as possible so we can understand your environment.
+
+        ⚠️ Never post passwords, API keys, access tokens, private keys, MAC addresses, public IP addresses, or other sensitive information.
+
+  - type: dropdown
+    id: help-type
+    attributes:
+      label: What do you need help with?
+      options:
+        - Installation
+        - First-time setup
+        - Router connection / SSH
+        - AI provider configuration
+        - AI model configuration
+        - Dashboard / monitoring
+        - Network diagnostics
+        - Router management
+        - Package management
+        - Authentication
+        - Docker / deployment
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: copilot-version
+    attributes:
+      label: OpenWrt AI Copilot version
+      placeholder: "v1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: openwrt-version
+    attributes:
+      label: OpenWrt version
+      placeholder: "OpenWrt 25.12.0"
+    validations:
+      required: true
+
+  - type: input
+    id: router-model
+    attributes:
+      label: Router model
+      placeholder: "e.g. Xiaomi AIoT AC2350"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker
+        - Local development
+        - Linux server
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: AI provider
+      options:
+        - Not applicable
+        - OpenAI
+        - Azure OpenAI
+        - Anthropic
+        - DeepSeek
+        - Google Gemini
+        - Groq
+        - Mistral
+        - NVIDIA NIM
+        - OpenRouter
+        - Ollama
+        - Together AI
+        - vLLM
+        - xAI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe your problem
+      description: Tell us what you are trying to do and where you are getting stuck.
+      placeholder: |
+        I am trying to...
+        I expected...
+        Instead...
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message or logs
+      description: Remove all sensitive information before posting.
+      render: text
+      placeholder: Paste relevant error messages or logs here...
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+      description: Screenshots, configuration details, commands, or other useful context.
+      placeholder: Add anything else that may help...

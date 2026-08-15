@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/necrodin/openwrt-ai-copilot/discussions
+    about: Ask questions, discuss ideas, and get community help.
